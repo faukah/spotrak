@@ -84,6 +84,18 @@ a {
   color: var(--color-text);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .site-header {
   position: sticky;
   top: 0;
@@ -101,6 +113,10 @@ a {
 
 .site-header.public-header {
   grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.desktop-search {
+  min-width: 0;
 }
 
 .brand {
@@ -313,38 +329,20 @@ textarea {
 @media (max-width: 760px) {
   .site-header,
   .site-header.public-header {
+    --mobile-header-height: 3.85rem;
     grid-template-columns: minmax(0, 1fr) auto;
+    min-height: var(--mobile-header-height);
     gap: 0.55rem;
+  }
+
+  .desktop-search,
+  .desktop-nav,
+  .desktop-controls {
+    display: none;
   }
 
   .brand {
     min-width: 0;
-  }
-
-  .search-shell,
-  .shell-nav,
-  .site-header.public-header .shell-nav {
-    grid-column: 1 / -1;
-    width: 100%;
-  }
-
-  .shell-nav {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.3rem;
-    overflow-x: visible;
-    padding-bottom: 0.1rem;
-  }
-
-  .shell-nav a {
-    padding: 0.48rem 0.3rem;
-    text-align: center;
-    font-size: 0.8rem;
-  }
-
-  .site-controls {
-    grid-column: 2;
-    grid-row: 1;
   }
 
   [data-slot="card"] {

@@ -4,6 +4,9 @@
   import { apiFetch } from '../../lib/api/client';
   import type { EntityRef, SearchResults } from '../../lib/api/types';
 
+  export let id = 'library-search';
+  export let name = id;
+
   let query = '';
   let results: SearchResults | null = null;
   let open = false;
@@ -63,8 +66,8 @@
 <div class="search-shell" onfocusout={() => window.setTimeout(() => (open = false), 120)}>
   <Search class="search-icon" aria-hidden="true" />
   <input
-    id="library-search"
-    name="library-search"
+    id={id}
+    name={name}
     bind:value={query}
     oninput={scheduleSearch}
     onfocus={() => (open = !!results || query.trim().length >= 2)}

@@ -3,6 +3,7 @@ import { ClientRouter } from 'astro:transitions';
 import PublicShareGuard from '../public/PublicShareGuard.svelte';
 import ThemeScript from './ThemeScript.astro';
 import ThemeToggle from './ThemeToggle.svelte';
+import MobileMenu from './MobileMenu.svelte';
 import '../../styles/global.css';
 
 interface Props {
@@ -25,6 +26,8 @@ const nav = [
 function isActive(href: string) {
   return href === base ? pathname === base || pathname === `${base}/` : pathname.startsWith(href);
 }
+
+const navItems = nav.map(([label, href]) => ({ label, href, active: isActive(href) }));
 ---
 
 <!doctype html>
@@ -45,12 +48,13 @@ function isActive(href: string) {
         <span class="brand-mark">ST</span>
         <span>Shared stats</span>
       </a>
-      <nav class="shell-nav" aria-label="Public navigation">
-        {nav.map(([label, href]) => <a href={href} aria-current={isActive(href) ? 'page' : undefined}>{label}</a>)}
+      <nav class="shell-nav desktop-nav" aria-label="Public navigation">
+        {navItems.map((item) => <a href={item.href} aria-current={item.active ? 'page' : undefined}>{item.label}</a>)}
       </nav>
-      <div class="site-controls">
+      <div class="site-controls desktop-controls">
         <ThemeToggle client:load />
       </div>
+      <MobileMenu navItems={navItems} menuId="public-mobile-menu" client:load />
     </header>
     <main class="page">
       <slot />
