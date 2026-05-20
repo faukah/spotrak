@@ -1,3 +1,4 @@
+// oxlint-disable typescript/no-unsafe-type-assertion -- API JSON boundaries are typed by callers/OpenAPI.
 import type { ApiErrorBody } from "./types";
 
 export const API_ENDPOINT =

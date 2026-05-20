@@ -7,6 +7,13 @@
   import { Button } from '../ui/button';
   import { Input } from '../ui/input';
 
+  type PendingConfirmation = {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    run: () => Promise<void>;
+  };
+
   let jobs: ImportJob[] = [];
   let files: FileList | undefined = undefined;
   let importType: 'privacy' | 'full-privacy' = 'privacy';
@@ -15,6 +22,7 @@
   let removing: string | null = null;
   let deletingHistory = false;
   let error: string | null = null;
+  let pendingConfirmation: PendingConfirmation | null = null;
 
   onMount(() => {
     void load();
@@ -51,9 +59,16 @@
     }
   }
 
-  async function deleteImportedHistory() {
-    const confirmed = window.confirm('Remove all listening events created by privacy/full-privacy imports? This is useful for old imports that were deleted before event tracking was added.');
-    if (!confirmed) return;
+  function deleteImportedHistory() {
+    pendingConfirmation = {
+      title: 'Remove imported history?',
+      message: 'Remove all listening events created by privacy/full-privacy imports? This is useful for old imports that were deleted before event tracking was added.',
+      confirmLabel: 'Remove imported history',
+      run: performDeleteImportedHistory,
+    };
+  }
+
+  async function performDeleteImportedHistory() {
     deletingHistory = true;
     error = null;
     try {
@@ -66,10 +81,17 @@
     }
   }
 
-  async function removeJob(job: ImportJob) {
+  function removeJob(job: ImportJob) {
     const action = job.status === 'progress' ? 'cancel' : 'remove';
-    const confirmed = window.confirm(`${action === 'cancel' ? 'Cancel' : 'Remove'} import "${job.name}"?`);
-    if (!confirmed) return;
+    pendingConfirmation = {
+      title: `${action === 'cancel' ? 'Cancel' : 'Remove'} import?`,
+      message: `${action === 'cancel' ? 'Cancel' : 'Remove'} import "${job.name}"?`,
+      confirmLabel: action === 'cancel' ? 'Cancel import' : 'Remove import',
+      run: () => performRemoveJob(job, action),
+    };
+  }
+
+  async function performRemoveJob(job: ImportJob, action: 'cancel' | 'remove') {
     removing = job.id;
     error = null;
     try {
@@ -85,7 +107,29 @@
       removing = null;
     }
   }
+
+  function cancelConfirmation() {
+    pendingConfirmation = null;
+  }
+
+  async function confirmPending() {
+    const confirmedAction = pendingConfirmation;
+    pendingConfirmation = null;
+    await confirmedAction?.run();
+  }
 </script>
+
+{#if pendingConfirmation}
+  <div class="confirm-backdrop" aria-hidden="true"></div>
+  <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="import-confirm-title">
+    <h2 id="import-confirm-title">{pendingConfirmation.title}</h2>
+    <p>{pendingConfirmation.message}</p>
+    <div class="confirm-actions">
+      <Button variant="outline" size="sm" onclick={cancelConfirmation}>Keep</Button>
+      <Button variant="destructive" size="sm" onclick={() => void confirmPending()}>{pendingConfirmation.confirmLabel}</Button>
+    </div>
+  </div>
+{/if}
 
 <div class="import-layout">
   <Card.Root>
@@ -193,6 +237,46 @@
     margin: 0;
     color: var(--color-muted);
     font-size: 0.8rem;
+  }
+
+  .confirm-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .confirm-dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 81;
+    display: grid;
+    width: min(92vw, 32rem);
+    transform: translate(-50%, -50%);
+    gap: 0.85rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 1rem;
+    background: var(--color-bg-elevated);
+    box-shadow: var(--shadow-card);
+  }
+
+  .confirm-dialog h2,
+  .confirm-dialog p {
+    margin: 0;
+  }
+
+  .confirm-dialog p {
+    color: var(--color-muted);
+  }
+
+  .confirm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
   }
 
   .error {

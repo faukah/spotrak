@@ -26,7 +26,7 @@
   let chartError: string | null = null;
   let active: SummaryMode = 'plays';
   let points: ChartPoint[] = [];
-  let chartElement: HTMLDivElement | undefined;
+  let chartElement: HTMLDivElement | null = null;
   let chart: echarts.ECharts | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let requestId = 0;

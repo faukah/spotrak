@@ -1,3 +1,4 @@
+// oxlint-disable typescript/no-unsafe-type-assertion -- Server API JSON boundaries are typed by callers/OpenAPI.
 export const SERVER_API_ENDPOINT =
   (import.meta.env.PUBLIC_API_ENDPOINT ?? "http://127.0.0.1:8080").replace(
     /\/$/,

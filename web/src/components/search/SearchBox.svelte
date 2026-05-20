@@ -42,19 +42,19 @@
   }
 
   async function search(value: string) {
-    const id = ++requestId;
+    const searchRequestId = ++requestId;
     controller?.abort();
     controller = new AbortController();
     loading = true;
     open = true;
     try {
       const nextResults = await apiFetch<SearchResults>(`/search?q=${encodeURIComponent(value)}`, { signal: controller.signal });
-      if (id === requestId) results = nextResults;
+      if (searchRequestId === requestId) results = nextResults;
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
-      if (id === requestId) results = null;
+      if (searchRequestId === requestId) results = null;
     } finally {
-      if (id === requestId) loading = false;
+      if (searchRequestId === requestId) loading = false;
     }
   }
 

@@ -56,8 +56,8 @@
   let error: string | null = null;
   let requestId = 0;
 
-  let hourElement: HTMLDivElement | undefined;
-  let rangeMenuElement: HTMLDivElement | undefined;
+  let hourElement: HTMLDivElement | null = null;
+  let rangeMenuElement: HTMLDivElement | null = null;
   let hourChart: echarts.ECharts | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let rangeMenuOpen = false;

@@ -28,9 +28,10 @@ export async function publicShareContext(
     request,
     `${paths.apiPrefix}/stats/summary`,
   );
-  return { ...paths, valid: !!summary };
+  return { ...paths, valid: Boolean(summary) };
 }
 
+// oxlint-disable typescript/no-unnecessary-type-parameters -- Caller supplies the OpenAPI detail shape.
 export async function publicDetailContext<T>(
   request: Request,
   token: string | undefined,
@@ -40,5 +41,10 @@ export async function publicDetailContext<T>(
   const initialDetail = context.valid
     ? await serverApiFetch<T>(request, `${context.apiPrefix}${detailPath}`)
     : null;
-  return { ...context, valid: context.valid && !!initialDetail, initialDetail };
+  return {
+    ...context,
+    valid: context.valid && Boolean(initialDetail),
+    initialDetail,
+  };
 }
+// oxlint-enable typescript/no-unnecessary-type-parameters

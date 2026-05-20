@@ -14,7 +14,7 @@
 
   export let split: 'year' | 'month' | 'week' | 'day' | 'hour' = 'day';
 
-  let element: HTMLDivElement | undefined;
+  let element: HTMLDivElement | null = null;
   let chart: echarts.ECharts | null = null;
   let points: TimelinePoint[] = [];
   let loading = true;

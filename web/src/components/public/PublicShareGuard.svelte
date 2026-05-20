@@ -3,6 +3,7 @@
   import { apiFetch, ApiError } from '../../lib/api/client';
   import type { SummaryStats } from '../../lib/api/types';
 
+  // oxlint-disable-next-line no-unassigned-vars -- Svelte assigns this required prop from the parent.
   export let token: string;
 
   let revoked = false;

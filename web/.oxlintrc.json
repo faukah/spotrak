@@ -1,0 +1,72 @@
+{
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "promise",
+    "jsx-a11y"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "ignorePatterns": [
+    ".astro",
+    ".vite",
+    "dist",
+    "src/lib/api/generated.d.ts"
+  ],
+  "rules": {
+    "array-callback-return": "error",
+    "default-case-last": "error",
+    "default-param-last": "error",
+    "eqeqeq": "error",
+    "no-alert": "error",
+    "no-array-constructor": "error",
+    "no-case-declarations": "error",
+    "no-console": "error",
+    "no-constructor-return": "error",
+    "no-duplicate-imports": "error",
+    "no-else-return": "error",
+    "no-empty": "error",
+    "no-empty-function": "error",
+    "no-fallthrough": "error",
+    "no-implicit-coercion": "error",
+    "no-loop-func": "error",
+    "no-multi-assign": "error",
+    "no-new-func": "error",
+    "no-new-wrappers": "error",
+    "no-promise-executor-return": "error",
+    "no-prototype-builtins": "error",
+    "no-redeclare": "error",
+    "no-return-assign": "error",
+    "no-script-url": "error",
+    "no-self-compare": "error",
+    "no-template-curly-in-string": "error",
+    "no-throw-literal": "error",
+    "no-var": "error",
+    "radix": "error",
+    "symbol-description": "error",
+    "typescript/ban-ts-comment": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-empty-object-type": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/no-import-type-side-effects": "error",
+    "typescript/no-non-null-assertion": "error",
+    "typescript/no-require-imports": "error",
+    "typescript/no-var-requires": "error",
+    "typescript/prefer-as-const": "error",
+    "typescript/prefer-ts-expect-error": "error",
+    "unicorn/error-message": "error",
+    "unicorn/no-new-buffer": "error",
+    "unicorn/throw-new-error": "error",
+    "yoda": "error"
+  },
+  "env": {
+    "browser": true,
+    "deno": true,
+    "es2024": true
+  }
+}

@@ -69,7 +69,7 @@ export function setThemePreference(
 }
 
 export function watchSystemTheme(): () => void {
-  if (typeof window === "undefined") return () => {};
+  if (typeof window === "undefined") return () => undefined;
 
   const media = window.matchMedia("(prefers-color-scheme: dark)");
   const listener = () => {

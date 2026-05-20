@@ -34,7 +34,7 @@
     value?: unknown;
   };
 
-  let element: HTMLDivElement | undefined;
+  let element: HTMLDivElement | null = null;
   let chart: echarts.ECharts | null = null;
   let rows: Row[] = [];
   let entities: Entity[] = [];
@@ -116,11 +116,11 @@
       current.image_url ||= row.image_url;
       byId.set(row.id, current);
     }
-    return [...byId.values()].sort((a, b) => b.total - a.total).slice(0, limit);
+    return [...byId.values()].toSorted((a, b) => b.total - a.total).slice(0, limit);
   }
 
   function uniqueBuckets() {
-    return [...new Set(rows.map((row) => row.bucket))].sort();
+    return [...new Set(rows.map((row) => row.bucket))].toSorted();
   }
 
   function href(entity: Entity) {
@@ -253,7 +253,7 @@
     const items = tooltipItems(params)
       .map((item) => ({ item, point: pointFromParam(item) }))
       .filter(({ point }) => point.raw > 0)
-      .reverse();
+      .toReversed();
 
     const first = tooltipItems(params)[0];
     const label = formatBucket(first?.axisValueLabel ?? first?.axisValue, true);

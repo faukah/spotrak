@@ -25,9 +25,9 @@
   let metric: 'count' | 'duration' = 'count';
   let unsubscribe: (() => void) | undefined;
 
-  let featureElement: HTMLDivElement | undefined;
-  let yearElement: HTMLDivElement | undefined;
-  let hourElement: HTMLDivElement | undefined;
+  let featureElement: HTMLDivElement | null = null;
+  let yearElement: HTMLDivElement | null = null;
+  let hourElement: HTMLDivElement | null = null;
   let featureChart: echarts.ECharts | null = null;
   let yearChart: echarts.ECharts | null = null;
   let hourChart: echarts.ECharts | null = null;
@@ -119,7 +119,7 @@
     if (releaseYears && yearElement) {
       yearChart ??= echarts.init(yearElement);
       resizeObserver?.observe(yearElement);
-      const distribution = releaseYears.distribution.filter((point) => point.release_year != null);
+      const distribution = releaseYears.distribution.filter((point) => point.release_year !== null && point.release_year !== undefined);
       yearChart.setOption({
         color: [colors.accent],
         tooltip,

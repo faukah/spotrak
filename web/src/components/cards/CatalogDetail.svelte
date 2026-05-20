@@ -7,7 +7,9 @@
   import CoverArt from '../media/CoverArt.svelte';
   import * as Card from '../ui/card';
 
+  // oxlint-disable-next-line no-unassigned-vars -- Svelte assigns this required prop from the parent.
   export let kind: 'track' | 'artist' | 'album';
+  // oxlint-disable-next-line no-unassigned-vars -- Svelte assigns this required prop from the parent.
   export let id: string;
 
   type Detail = TrackDetail | ArtistDetail | AlbumDetail;
