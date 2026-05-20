@@ -45,11 +45,14 @@ pub async fn find_by_spotify_id(pool: &PgPool, spotify_id: &str) -> Result<Optio
     Ok(user)
 }
 
-pub async fn create(tx: &mut Transaction<'_, Postgres>, new_user: &NewUser) -> Result<User> {
+pub async fn upsert_login(tx: &mut Transaction<'_, Postgres>, new_user: &NewUser) -> Result<User> {
     let user = sqlx::query_as::<_, User>(
         r#"
         INSERT INTO users (username, spotify_id, admin)
         VALUES ($1, $2, $3)
+        ON CONFLICT (spotify_id) DO UPDATE SET
+          username = EXCLUDED.username,
+          updated_at = now()
         RETURNING id, username, spotify_id, admin, access_token, refresh_token, token_expires_at,
                   last_spotify_poll_at, first_listened_at, created_at, updated_at
         "#,
@@ -87,6 +90,25 @@ pub async fn update_tokens(
     .bind(refresh_token)
     .bind(token_expires_at)
     .fetch_one(pool)
+    .await?;
+    Ok(user)
+}
+
+pub async fn find_by_id_for_update_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: Uuid,
+) -> Result<Option<User>> {
+    let user = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, username, spotify_id, admin, access_token, refresh_token, token_expires_at,
+               last_spotify_poll_at, first_listened_at, created_at, updated_at
+        FROM users
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(&mut **tx)
     .await?;
     Ok(user)
 }

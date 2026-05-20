@@ -47,7 +47,7 @@ const navItems = nav.map(([label, href]) => ({ label, href, active: isActive(hre
   <body>
     <AuthGate client:load />
     <header class="site-header">
-      <a class="brand" href="/" aria-label="Spotrak overview">
+      <a class="brand" href="/" aria-label="Spotrak overview" data-astro-prefetch="hover">
         <span class="brand-mark">ST</span>
         <span>Spotrak</span>
       </a>
@@ -55,7 +55,7 @@ const navItems = nav.map(([label, href]) => ({ label, href, active: isActive(hre
         <SearchBox id="desktop-library-search" name="desktop-library-search" client:load />
       </div>
       <nav class="shell-nav desktop-nav" aria-label="Main navigation">
-        {navItems.map((item) => <a href={item.href} aria-current={item.active ? 'page' : undefined}>{item.label}</a>)}
+        {navItems.map((item) => <a href={item.href} aria-current={item.active ? 'page' : undefined} data-astro-prefetch="hover">{item.label}</a>)}
       </nav>
       <div class="site-controls desktop-controls">
         <ThemeToggle client:load />

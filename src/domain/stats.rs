@@ -1,11 +1,11 @@
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
 use crate::domain::time::StatsRangeResponse;
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct OverviewStatsResponse {
     pub range: StatsRangeResponse,
     pub available_years: Vec<i32>,
@@ -16,9 +16,11 @@ pub struct OverviewStatsResponse {
     pub best_song: Option<TopTrack>,
     pub hourly_distribution: Vec<HourRepartitionPoint>,
     pub history: Vec<HistoryEvent>,
+    pub hour_format: String,
+    pub timezone: String,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct SummaryStats {
     pub total_listens: i64,
     pub total_duration_ms: i64,
@@ -27,14 +29,14 @@ pub struct SummaryStats {
     pub unique_albums: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct TimelinePoint {
     pub bucket: String,
     pub count: i64,
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct TopTrack {
     pub id: String,
     pub name: String,
@@ -47,7 +49,7 @@ pub struct TopTrack {
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct TopArtist {
     pub id: String,
     pub name: String,
@@ -56,7 +58,7 @@ pub struct TopArtist {
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct TopAlbum {
     pub id: String,
     pub name: String,
@@ -67,7 +69,7 @@ pub struct TopAlbum {
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct HistoryEvent {
     pub id: uuid::Uuid,
     pub track_id: String,
@@ -82,14 +84,14 @@ pub struct HistoryEvent {
     pub source: String,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct HourRepartitionPoint {
     pub hour: i32,
     pub count: i64,
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct FeatureRatioStats {
     pub solo_count: i64,
     pub feature_count: i64,
@@ -97,20 +99,20 @@ pub struct FeatureRatioStats {
     pub feature_duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct AlbumReleaseYearPoint {
     pub release_year: Option<i32>,
     pub count: i64,
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct AlbumReleaseYearsStats {
     pub average_release_year: Option<f64>,
     pub distribution: Vec<AlbumReleaseYearPoint>,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct DiversityTimelinePoint {
     pub bucket: String,
     pub unique_tracks: i64,
@@ -119,7 +121,7 @@ pub struct DiversityTimelinePoint {
     pub average_release_year: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct EntityStats {
     pub total_listens: i64,
     pub total_duration_ms: i64,
@@ -130,7 +132,7 @@ pub struct EntityStats {
     pub last_played_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct LongestSession {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
@@ -139,7 +141,7 @@ pub struct LongestSession {
     pub tracks: Vec<HistoryEvent>,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct BucketedTopTrack {
     pub bucket: String,
     pub id: String,
@@ -153,7 +155,7 @@ pub struct BucketedTopTrack {
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct BucketedTopArtist {
     pub bucket: String,
     pub id: String,
@@ -163,7 +165,7 @@ pub struct BucketedTopArtist {
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct BucketedTopAlbum {
     pub bucket: String,
     pub id: String,

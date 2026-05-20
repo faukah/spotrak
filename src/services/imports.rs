@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
+use chrono_tz::Tz;
+
 use crate::{
     domain::{
         import::ImportJob,
         spotify::{SpotifyRecentlyPlayedItem, SpotifyTrack},
     },
     error::{AppError, Result},
-    repositories::{catalog, imports, users},
-    services::{poller, spotify_client},
+    repositories::{catalog, imports, response_cache, settings, spotify_queue, users},
+    services::{ingestion, poller, spotify_client},
     state::AppState,
 };
 use chrono::{NaiveDateTime, TimeZone, Utc};
@@ -72,13 +74,21 @@ pub async fn process_job(state: &AppState, job: ImportJob) -> Result<()> {
         return Err(AppError::validation("import job has no files"));
     }
 
+    let user_settings = settings::get(&state.db, job.user_id).await?;
+    let import_timezone = user_settings
+        .timezone
+        .as_deref()
+        .unwrap_or_else(|| state.config.timezone.name())
+        .parse::<Tz>()
+        .map_err(|_| AppError::validation("user timezone must be an IANA timezone name"))?;
+
     let mut candidates = Vec::new();
     for file in files {
         let bytes = tokio::fs::read(&file.path).await.map_err(|err| {
             AppError::internal(format!("failed to read {}: {err}", file.original_name))
         })?;
         let parsed = match job.import_type.as_str() {
-            "privacy" => parse_privacy_file(&bytes)?,
+            "privacy" => parse_privacy_file(&bytes, import_timezone)?,
             "full-privacy" => parse_full_privacy_file(&bytes)?,
             other => {
                 return Err(AppError::validation(format!(
@@ -96,19 +106,10 @@ pub async fn process_job(state: &AppState, job: ImportJob) -> Result<()> {
     let user = users::find_by_id(&state.db, job.user_id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let (access_token, token_source) = match poller::refresh_access_token(state, &user).await {
-        Ok(access_token) => (access_token, "refreshed_user_token"),
-        Err(error) => {
-            tracing::warn!(
-                ?error,
-                "failed to refresh Spotify access token before import; falling back to cached token if still valid"
-            );
-            (
-                poller::valid_access_token(state, &user).await?,
-                "cached_user_token_after_refresh_failure",
-            )
-        }
-    };
+    let (access_token, token_source) = (
+        poller::valid_access_token(state, &user).await?,
+        "valid_user_token",
+    );
     tracing::info!(
         job_id = %job.id,
         user_id = %user.id,
@@ -215,16 +216,39 @@ async fn insert_items(
     if pending.is_empty() {
         return Ok(());
     }
+    let artist_ids = ingestion::artist_ids_from_recently_played(pending);
     let mut tx = state.db.begin().await?;
+    let mut inserted = 0;
     for item in pending.drain(..) {
-        catalog::upsert_recently_played_event(&mut tx, user_id, &item, source, Some(import_job_id))
-            .await?;
+        if catalog::upsert_recently_played_event(
+            &mut tx,
+            user_id,
+            &item,
+            source,
+            Some(import_job_id),
+        )
+        .await?
+        {
+            inserted += 1;
+        }
     }
     tx.commit().await?;
+
+    if inserted > 0 {
+        response_cache::invalidate_namespace(
+            &state.db,
+            response_cache::STATS_OVERVIEW_NAMESPACE,
+            user_id,
+        )
+        .await?;
+        let missing = catalog::artists_missing_images(&state.db, &artist_ids).await?;
+        spotify_queue::enqueue_artist_hydration(&state.db, user_id, &missing).await?;
+    }
+
     Ok(())
 }
 
-fn parse_privacy_file(bytes: &[u8]) -> Result<Vec<ImportCandidate>> {
+fn parse_privacy_file(bytes: &[u8], timezone: Tz) -> Result<Vec<ImportCandidate>> {
     let entries = serde_json::from_slice::<Vec<PrivacyEntry>>(bytes)
         .map_err(|err| AppError::validation(format!("invalid privacy JSON: {err}")))?;
     let mut candidates = Vec::new();
@@ -241,7 +265,7 @@ fn parse_privacy_file(bytes: &[u8]) -> Result<Vec<ImportCandidate>> {
         let Some(artist_name) = entry.artist_name.filter(|value| !value.trim().is_empty()) else {
             continue;
         };
-        let played_at = parse_privacy_time(&end_time)?;
+        let played_at = parse_privacy_time(&end_time, timezone)?;
         candidates.push(ImportCandidate {
             played_at,
             track_id: None,
@@ -411,10 +435,14 @@ async fn resolve_track(
     Ok(None)
 }
 
-fn parse_privacy_time(value: &str) -> Result<chrono::DateTime<Utc>> {
+fn parse_privacy_time(value: &str, timezone: Tz) -> Result<chrono::DateTime<Utc>> {
     let parsed = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M")
         .map_err(|err| AppError::validation(format!("invalid privacy endTime {value}: {err}")))?;
-    Ok(Utc.from_utc_datetime(&parsed))
+    timezone
+        .from_local_datetime(&parsed)
+        .earliest()
+        .map(|value| value.with_timezone(&Utc))
+        .ok_or_else(|| AppError::validation(format!("invalid local privacy endTime {value}")))
 }
 
 fn normalize_query_key(query: &str) -> String {
@@ -446,7 +474,7 @@ mod tests {
     #[test]
     fn parses_privacy_import_rows() {
         let json = br#"[{"endTime":"2024-01-01 12:34","artistName":"Artist","trackName":"Song","msPlayed":12345}]"#;
-        let rows = parse_privacy_file(json).unwrap();
+        let rows = parse_privacy_file(json, chrono_tz::UTC).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].query.as_deref(), Some("track:Song artist:Artist"));
     }

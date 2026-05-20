@@ -669,7 +669,10 @@ async fn upsert_album(tx: &mut Transaction<'_, Postgres>, album: &SpotifyAlbum) 
           href = COALESCE(EXCLUDED.href, albums.href),
           uri = COALESCE(EXCLUDED.uri, albums.uri),
           type = COALESCE(EXCLUDED.type, albums.type),
-          images = EXCLUDED.images,
+          images = CASE
+            WHEN jsonb_array_length(EXCLUDED.images) > 0 THEN EXCLUDED.images
+            ELSE albums.images
+          END,
           raw = COALESCE(EXCLUDED.raw, albums.raw),
           updated_at = now()
         "#,
@@ -719,7 +722,10 @@ async fn upsert_track(tx: &mut Transaction<'_, Postgres>, track: &SpotifyTrack) 
           popularity = COALESCE(EXCLUDED.popularity, tracks.popularity),
           disc_number = COALESCE(EXCLUDED.disc_number, tracks.disc_number),
           track_number = COALESCE(EXCLUDED.track_number, tracks.track_number),
-          images = EXCLUDED.images,
+          images = CASE
+            WHEN jsonb_array_length(EXCLUDED.images) > 0 THEN EXCLUDED.images
+            ELSE tracks.images
+          END,
           raw = COALESCE(EXCLUDED.raw, tracks.raw),
           updated_at = now()
         "#,

@@ -76,7 +76,7 @@
 
     <nav class="mobile-menu-nav" aria-label="Mobile navigation">
       {#each navItems as item}
-        <a href={item.href} aria-current={item.active ? 'page' : undefined} onclick={close}>
+        <a href={item.href} aria-current={item.active ? 'page' : undefined} data-astro-prefetch="tap" onclick={close}>
           <span>{item.label}</span>
           <span class="mobile-menu-chevron" aria-hidden="true">›</span>
         </a>

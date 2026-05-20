@@ -4,25 +4,31 @@ export interface SpotifyImage {
   width?: number | null;
 }
 
+const ALLOWED_IMAGE_HOSTS = new Set([
+  "i.scdn.co",
+  "mosaic.scdn.co",
+  "image-cdn-ak.spotifycdn.com",
+]);
+
 export function spotifyImageUrl(value: unknown): string | null {
   if (!value) return null;
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return allowedImageUrl(value);
   if (Array.isArray(value)) {
     const images = value.filter(isSpotifyImage);
     images.sort((a, b) =>
       Math.abs((a.width ?? a.height ?? 0) - 320) -
       Math.abs((b.width ?? b.height ?? 0) - 320)
     );
-    return images[0]?.url ?? null;
+    return allowedImageUrl(images[0]?.url ?? null);
   }
-  if (isSpotifyImage(value)) return value.url ?? null;
+  if (isSpotifyImage(value)) return allowedImageUrl(value.url ?? null);
   return null;
 }
 
 export function directImageUrl(
   value: { image_url?: string | null } | null | undefined,
 ): string | null {
-  return value?.image_url ?? null;
+  return allowedImageUrl(value?.image_url ?? null);
 }
 
 export function initials(name: string): string {
@@ -42,6 +48,18 @@ export function transitionHref(href: string, transitionName: string): string {
   const url = new URL(href, "http://spotrak.local");
   url.searchParams.set("vt", transitionName);
   return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function allowedImageUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") return null;
+    if (!ALLOWED_IMAGE_HOSTS.has(url.hostname)) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 function sanitizeTransitionPart(value: string): string {

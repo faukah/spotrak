@@ -36,7 +36,7 @@ impl Default for Metric {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema)]
 pub struct StatsInterval {
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
@@ -73,7 +73,7 @@ pub struct RangeQuery {
     pub year: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct StatsRangeResponse {
     pub range: StatsRangeKey,
     pub label: String,

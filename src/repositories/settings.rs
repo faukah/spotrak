@@ -43,20 +43,20 @@ pub async fn get(pool: &PgPool, user_id: Uuid) -> Result<UserSettings> {
 
 pub async fn update(pool: &PgPool, user_id: Uuid, patch: &SettingsPatch) -> Result<UserSettings> {
     patch.validate()?;
-    let current = get(pool, user_id).await?;
-    let timezone = patch.timezone.clone().unwrap_or(current.timezone);
+    let timezone_provided = patch.timezone.is_some();
+    let timezone = patch.timezone.clone().flatten();
 
     let settings = sqlx::query_as::<_, UserSettings>(
         r#"
         UPDATE user_settings
-        SET history_line = $2,
-            preferred_stats_period = $3,
-            nb_elements = $4,
-            metric_used = $5,
-            dark_mode = $6,
-            timezone = $7,
-            date_format = $8,
-            hour_format = $9,
+        SET history_line = COALESCE($2, history_line),
+            preferred_stats_period = COALESCE($3, preferred_stats_period),
+            nb_elements = COALESCE($4, nb_elements),
+            metric_used = COALESCE($5, metric_used),
+            dark_mode = COALESCE($6, dark_mode),
+            timezone = CASE WHEN $7 THEN $8 ELSE timezone END,
+            date_format = COALESCE($9, date_format),
+            hour_format = COALESCE($10, hour_format),
             updated_at = now()
         WHERE user_id = $1
         RETURNING user_id, history_line, preferred_stats_period, nb_elements, metric_used,
@@ -64,19 +64,15 @@ pub async fn update(pool: &PgPool, user_id: Uuid, patch: &SettingsPatch) -> Resu
         "#,
     )
     .bind(user_id)
-    .bind(patch.history_line.unwrap_or(current.history_line))
-    .bind(
-        patch
-            .preferred_stats_period
-            .as_deref()
-            .unwrap_or(&current.preferred_stats_period),
-    )
-    .bind(patch.nb_elements.unwrap_or(current.nb_elements))
-    .bind(patch.metric_used.as_deref().unwrap_or(&current.metric_used))
-    .bind(patch.dark_mode.as_deref().unwrap_or(&current.dark_mode))
+    .bind(patch.history_line)
+    .bind(patch.preferred_stats_period.as_deref())
+    .bind(patch.nb_elements)
+    .bind(patch.metric_used.as_deref())
+    .bind(patch.dark_mode.as_deref())
+    .bind(timezone_provided)
     .bind(timezone)
-    .bind(patch.date_format.as_deref().unwrap_or(&current.date_format))
-    .bind(patch.hour_format.as_deref().unwrap_or(&current.hour_format))
+    .bind(patch.date_format.as_deref())
+    .bind(patch.hour_format.as_deref())
     .fetch_one(pool)
     .await?;
     Ok(settings)

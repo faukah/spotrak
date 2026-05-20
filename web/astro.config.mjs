@@ -7,6 +7,10 @@ const repoRoot = new URL("../", import.meta.url).pathname;
 
 export default defineConfig({
   integrations: [svelte()],
+  prefetch: {
+    prefetchAll: false,
+    defaultStrategy: "hover",
+  },
   output: "server",
   adapter: deno({ start: false, hostname: "0.0.0.0", port: 4322 }),
   vite: {
@@ -16,8 +20,11 @@ export default defineConfig({
         allow: [repoRoot],
       },
     },
+    optimizeDeps: {
+      exclude: ["layerchart"],
+    },
     ssr: {
-      noExternal: ["@lucide/svelte"],
+      noExternal: ["@lucide/svelte", "layerchart"],
     },
   },
 });

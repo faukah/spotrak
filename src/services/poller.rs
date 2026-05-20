@@ -5,7 +5,7 @@ use crate::{
     domain::user::User,
     error::{AppError, Result},
     repositories::users,
-    services::{ingestion, spotify_client},
+    services::{ingestion, spotify_client, token_crypto},
     state::AppState,
 };
 
@@ -56,7 +56,7 @@ pub async fn valid_access_token(state: &AppState, user: &User) -> Result<String>
     let refresh_at = Utc::now() + ChronoDuration::minutes(2);
     if let (Some(access_token), Some(expires_at)) = (&user.access_token, user.token_expires_at) {
         if expires_at > refresh_at {
-            return Ok(access_token.clone());
+            return token_crypto::decrypt_spotify_token(&state.config, access_token);
         }
     }
 
@@ -64,18 +64,43 @@ pub async fn valid_access_token(state: &AppState, user: &User) -> Result<String>
 }
 
 pub async fn refresh_access_token(state: &AppState, user: &User) -> Result<String> {
-    let refresh_token = user
+    let refresh_at = Utc::now() + ChronoDuration::minutes(2);
+    let mut tx = state.db.begin().await?;
+    let current = users::find_by_id_for_update_tx(&mut tx, user.id)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+
+    if let (Some(access_token), Some(expires_at)) =
+        (&current.access_token, current.token_expires_at)
+    {
+        if expires_at > refresh_at {
+            let access_token = token_crypto::decrypt_spotify_token(&state.config, access_token)?;
+            tx.commit().await?;
+            return Ok(access_token);
+        }
+    }
+
+    let refresh_token = current
         .refresh_token
         .as_deref()
-        .ok_or(AppError::Unauthorized)?;
-    let refreshed = spotify_client::refresh_token(state, refresh_token).await?;
-    users::update_tokens(
-        &state.db,
-        user.id,
-        &refreshed.access_token,
-        refreshed.refresh_token.as_deref(),
+        .ok_or(AppError::Unauthorized)
+        .and_then(|token| token_crypto::decrypt_spotify_token(&state.config, token))?;
+    let refreshed = spotify_client::refresh_token(state, &refresh_token).await?;
+    let encrypted_access_token =
+        token_crypto::encrypt_spotify_token(&state.config, &refreshed.access_token)?;
+    let encrypted_refresh_token = refreshed
+        .refresh_token
+        .as_deref()
+        .map(|token| token_crypto::encrypt_spotify_token(&state.config, token))
+        .transpose()?;
+    users::update_tokens_tx(
+        &mut tx,
+        current.id,
+        &encrypted_access_token,
+        encrypted_refresh_token.as_deref(),
         refreshed.token_expires_at,
     )
     .await?;
+    tx.commit().await?;
     Ok(refreshed.access_token)
 }

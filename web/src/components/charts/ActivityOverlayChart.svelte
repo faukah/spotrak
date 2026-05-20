@@ -1,36 +1,39 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
-  import * as echarts from 'echarts/core';
-  import { BarChart, LineChart } from 'echarts/charts';
-  import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
-  import { CanvasRenderer } from 'echarts/renderers';
+  import { onMount } from 'svelte';
+  import { LineChart } from 'layerchart';
   import { apiFetch } from '../../lib/api/client';
   import type { TimelinePoint } from '../../lib/api/types';
-  import { chartColors, chartTooltip } from '../../lib/charts/theme';
-  import { formatChartValue } from '../../lib/stats/format';
+  import { chartColor, formatCountValue, formatDurationValue, formatLongDate, formatShortDate, numericValue, tickStep } from '../../lib/charts/theme';
   import * as Card from '../ui/card';
+  import * as Chart from '../ui/chart';
 
-  echarts.use([BarChart, LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
+  type TooltipItem = { color?: string; key?: string };
 
   export let split: 'year' | 'month' | 'week' | 'day' | 'hour' = 'day';
 
-  let element: HTMLDivElement | null = null;
-  let chart: echarts.ECharts | null = null;
   let points: TimelinePoint[] = [];
   let loading = true;
   let error: string | null = null;
-  let resizeObserver: ResizeObserver | null = null;
+
+  const chartConfig = {
+    plays: { label: 'plays', color: chartColor(0) },
+    minutes: { label: 'time', color: chartColor(1) },
+  } satisfies Chart.ChartConfig;
+
+  $: chartData = points.map((point) => ({
+    label: point.bucket,
+    plays: point.count,
+    minutes: point.duration_ms / 60_000,
+  }));
+  $: xTickStep = tickStep(chartData.length, 6);
+
+  const series = [
+    { key: 'plays', label: chartConfig.plays.label, value: 'plays', color: chartConfig.plays.color },
+    { key: 'minutes', label: chartConfig.minutes.label, value: 'minutes', color: chartConfig.minutes.color },
+  ];
 
   onMount(() => {
-    const handleThemeChange = () => render();
     void load();
-    resizeObserver = new ResizeObserver(() => chart?.resize());
-    window.addEventListener('spotrak:theme-change', handleThemeChange);
-    return () => {
-      window.removeEventListener('spotrak:theme-change', handleThemeChange);
-      resizeObserver?.disconnect();
-      chart?.dispose();
-    };
   });
 
   async function load() {
@@ -43,79 +46,19 @@
     } finally {
       loading = false;
     }
-
-    await tick();
-    if (error || points.length === 0 || !element) return;
-    if (!chart) {
-      chart = echarts.init(element);
-      resizeObserver?.observe(element);
-    }
-    render();
   }
 
-  function render() {
-    if (!chart) return;
-    const colors = chartColors();
-    const labels = points.map((point) => point.bucket);
-    const counts = points.map((point) => point.count);
-    const durations = points.map((point) => point.duration_ms);
+  function formatAxisValue(value: unknown): string {
+    return formatCountValue(value);
+  }
 
-    chart.setOption({
-      backgroundColor: 'transparent',
-      animationDuration: 550,
-      tooltip: {
-        trigger: 'axis',
-        ...chartTooltip(colors),
-      },
-      legend: { top: 0, right: 0, textStyle: { color: colors.muted }, itemWidth: 12, itemHeight: 8 },
-      grid: { left: 46, right: 48, top: 38, bottom: 42 },
-      xAxis: {
-        type: 'category',
-        data: labels,
-        axisLabel: { color: colors.muted, hideOverlap: true, fontSize: 11 },
-        axisLine: { lineStyle: { color: colors.border } },
-        axisTick: { show: false },
-      },
-      yAxis: [
-        {
-          type: 'value',
-          name: 'plays',
-          nameTextStyle: { color: colors.muted },
-          splitLine: { lineStyle: { color: colors.border, opacity: 0.38 } },
-          axisLabel: { color: colors.muted, formatter: (value: number) => formatChartValue(value, 'count') },
-        },
-        {
-          type: 'value',
-          name: 'time',
-          nameTextStyle: { color: colors.muted },
-          splitLine: { show: false },
-          axisLabel: { color: colors.muted, formatter: (value: number) => formatChartValue(value, 'duration') },
-        },
-      ],
-      series: [
-        {
-          name: 'plays',
-          type: 'bar',
-          yAxisIndex: 0,
-          data: counts,
-          barMaxWidth: 18,
-          itemStyle: { color: 'rgba(158,185,142,0.42)', borderColor: colors.primary, borderWidth: 1, borderRadius: 1 },
-        },
-        {
-          name: 'time',
-          type: 'line',
-          yAxisIndex: 1,
-          data: durations,
-          smooth: true,
-          symbol: 'circle',
-          symbolSize: 4,
-          showSymbol: points.length <= 80,
-          lineStyle: { color: colors.accent, width: 2.2 },
-          itemStyle: { color: colors.accent },
-          areaStyle: { color: 'rgba(209,167,95,0.10)' },
-        },
-      ],
-    });
+  function formatTooltipValue(value: unknown, item: TooltipItem): string {
+    if (item.key === 'minutes') return formatDurationValue(numericValue(value) * 60_000);
+    return `${formatCountValue(value)} plays`;
+  }
+
+  function tooltipColor(item: TooltipItem): string {
+    return item.color ?? 'currentColor';
   }
 </script>
 
@@ -132,15 +75,69 @@
     {:else if points.length === 0}
       <p class="state">No activity yet.</p>
     {:else}
-      <div bind:this={element} class="chart" role="img" aria-label="Overlaid plays and listening time chart"></div>
+      <Chart.Container config={chartConfig} class="chart" role="img" aria-label="Overlaid plays and listening time chart">
+        <LineChart
+          data={chartData}
+          x="label"
+          series={series}
+          yBaseline={0}
+          legend
+          padding={{ left: 46, right: 24, top: 38, bottom: 42 }}
+          props={{
+            xAxis: { format: formatShortDate, ticks: xTickStep },
+            yAxis: { format: formatAxisValue, tickSpacing: 72 },
+            spline: { strokeWidth: 2.2 },
+          }}
+        >
+          {#snippet tooltip()}
+            <Chart.Tooltip labelFormatter={formatLongDate}>
+              {#snippet formatter({ value, name, item })}
+                <div class="tooltip-row">
+                  <span class="tooltip-swatch" style:background={tooltipColor(item)}></span>
+                  <span class="tooltip-name">{name}</span>
+                  <span class="tooltip-value">{formatTooltipValue(value, item)}</span>
+                </div>
+              {/snippet}
+            </Chart.Tooltip>
+          {/snippet}
+        </LineChart>
+      </Chart.Container>
     {/if}
   </Card.Content>
 </Card.Root>
 
 <style>
-  .chart {
+  :global(.chart) {
     width: 100%;
     min-height: clamp(22rem, 43vw, 33rem);
+  }
+
+  .tooltip-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.45rem;
+    align-items: center;
+    min-width: 11rem;
+  }
+
+  .tooltip-swatch {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 999px;
+  }
+
+  .tooltip-name {
+    overflow: hidden;
+    color: var(--color-text);
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tooltip-value {
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   .state { color: var(--color-muted); }

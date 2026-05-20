@@ -90,13 +90,6 @@ pub struct SpotifyRecentlyPlayedItem {
     pub played_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct SpotifyCurrentlyPlaying {
-    pub is_playing: bool,
-    pub progress_ms: Option<i32>,
-    pub item: Option<SpotifyTrack>,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct SpotifyRecentlyPlayedResponse {
     #[serde(default)]
@@ -129,19 +122,4 @@ pub struct SpotifySearchTracks {
 pub struct SpotifySearchTrackItems {
     #[serde(default)]
     pub items: Vec<SpotifyTrack>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
-pub struct SpotifyPlaylistSummary {
-    pub id: String,
-    pub name: String,
-    pub uri: Option<String>,
-    pub href: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SpotifyPlaylistsResponse {
-    #[serde(default)]
-    pub items: Vec<SpotifyPlaylistSummary>,
-    pub next: Option<String>,
 }

@@ -6,7 +6,7 @@ use axum::{
     http::HeaderMap,
     routing::get,
 };
-use chrono::{Datelike, Utc};
+use chrono::{DateTime, Datelike, Duration, Utc};
 use chrono_tz::Tz;
 
 use crate::{
@@ -23,7 +23,7 @@ use crate::{
         },
     },
     error::{AppError, Result},
-    repositories::{listening_events, settings},
+    repositories::{listening_events, response_cache, settings},
     state::AppState,
 };
 
@@ -114,70 +114,91 @@ pub async fn overview(
     Query(query): Query<RangeQuery>,
 ) -> Result<Json<OverviewStatsResponse>> {
     let user = current_user(&headers, &state).await?;
-    let timezone_name = user_timezone(&state, user.id).await?;
+    let user_settings = settings::get(&state.db, user.id).await?;
+    let timezone_name = user_settings
+        .timezone
+        .clone()
+        .unwrap_or_else(|| state.config.timezone.name().to_owned());
+    let hour_format = user_settings.hour_format.clone();
     let timezone = timezone_name
         .parse::<Tz>()
         .map_err(|_| AppError::validation("user timezone must be an IANA timezone name"))?;
     let range = resolve_stats_range(timezone, query)?;
+    let current_local_year = Utc::now().with_timezone(&timezone).year();
+    let cache_key = overview_cache_key(&timezone_name, &hour_format, &range, current_local_year);
 
-    let summary = listening_events::summary(&state.db, user.id, range.start, range.end).await?;
-    let previous_summary = match (range.previous_start, range.previous_end) {
-        (Some(start), Some(end)) => {
-            Some(listening_events::summary(&state.db, user.id, Some(start), Some(end)).await?)
+    if let Some(cached) = response_cache::get(
+        &state.db,
+        response_cache::STATS_OVERVIEW_NAMESPACE,
+        user.id,
+        &cache_key,
+    )
+    .await?
+    {
+        return Ok(Json(cached));
+    }
+
+    let start = range.start;
+    let end = range.end;
+    let previous_start = range.previous_start;
+    let previous_end = range.previous_end;
+
+    let previous_summary = async {
+        match (previous_start, previous_end) {
+            (Some(start), Some(end)) => Ok(Some(
+                listening_events::summary(&state.db, user.id, Some(start), Some(end)).await?,
+            )),
+            _ => Ok(None),
         }
-        _ => None,
     };
 
-    let mut artists = listening_events::top_artists(
-        &state.db,
-        user.id,
-        Metric::Count,
-        range.start,
-        range.end,
-        1,
-        0,
-    )
-    .await?;
-    let best_artist = artists.pop();
-    let best_artist_stats = match &best_artist {
-        Some(artist) => Some(
-            listening_events::entity_stats(
-                &state.db,
-                user.id,
-                listening_events::EntityFilter::Artist(&artist.id),
-                range.start,
-                range.end,
-            )
-            .await?,
-        ),
-        None => None,
+    let best_artist = async {
+        let mut artists =
+            listening_events::top_artists(&state.db, user.id, Metric::Count, start, end, 1, 0)
+                .await?;
+        let best_artist = artists.pop();
+        let best_artist_stats = match &best_artist {
+            Some(artist) => Some(
+                listening_events::entity_stats(
+                    &state.db,
+                    user.id,
+                    listening_events::EntityFilter::Artist(&artist.id),
+                    start,
+                    end,
+                )
+                .await?,
+            ),
+            None => None,
+        };
+        Ok::<_, AppError>((best_artist, best_artist_stats))
     };
 
-    let mut tracks = listening_events::top_tracks(
-        &state.db,
-        user.id,
-        Metric::Count,
-        range.start,
-        range.end,
-        1,
-        0,
-    )
-    .await?;
-    let best_song = tracks.pop();
+    let best_song = async {
+        let mut tracks =
+            listening_events::top_tracks(&state.db, user.id, Metric::Count, start, end, 1, 0)
+                .await?;
+        Ok::<_, AppError>(tracks.pop())
+    };
 
-    let hourly_distribution = listening_events::hour_repartition(
-        &state.db,
-        user.id,
-        &timezone_name,
-        range.start,
-        range.end,
-    )
-    .await?;
-    let history =
-        listening_events::history(&state.db, user.id, range.start, range.end, 25, 0).await?;
-    let available_years = available_years(&state, user.id, timezone, &timezone_name).await?;
+    let (
+        summary,
+        previous_summary,
+        (best_artist, best_artist_stats),
+        best_song,
+        hourly_distribution,
+        history,
+        available_years,
+    ) = tokio::try_join!(
+        listening_events::summary(&state.db, user.id, start, end),
+        previous_summary,
+        best_artist,
+        best_song,
+        listening_events::hour_repartition(&state.db, user.id, &timezone_name, start, end),
+        listening_events::history(&state.db, user.id, start, end, 25, 0),
+        available_years(&state, user.id, timezone, &timezone_name),
+    )?;
 
-    Ok(Json(OverviewStatsResponse {
+    let overview = OverviewStatsResponse {
         range,
         available_years,
         summary,
@@ -187,7 +208,44 @@ pub async fn overview(
         best_song,
         hourly_distribution,
         history,
-    }))
+        hour_format,
+        timezone: timezone_name,
+    };
+
+    response_cache::set(
+        &state.db,
+        response_cache::STATS_OVERVIEW_NAMESPACE,
+        user.id,
+        &cache_key,
+        &overview,
+        Some(Duration::days(370)),
+    )
+    .await?;
+
+    Ok(Json(overview))
+}
+
+fn overview_cache_key(
+    timezone: &str,
+    hour_format: &str,
+    range: &StatsRangeResponse,
+    current_local_year: i32,
+) -> String {
+    format!(
+        "v2:{timezone}:{hour_format}:{current_local_year}:{:?}:{}:{}:{}:{}",
+        range.range,
+        cache_time_part(&range.start),
+        cache_time_part(&range.end),
+        cache_time_part(&range.previous_start),
+        cache_time_part(&range.previous_end),
+    )
+}
+
+fn cache_time_part(value: &Option<DateTime<Utc>>) -> String {
+    value
+        .as_ref()
+        .map(|date| date.to_rfc3339())
+        .unwrap_or_else(|| "-".to_owned())
 }
 
 async fn available_years(

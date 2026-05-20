@@ -12,7 +12,7 @@ use crate::{
         responses::{MeResponse, PublicSharingResponse, PublicTokenResponse},
     },
     error::{AppError, Result},
-    repositories::{public_tokens, settings, users},
+    repositories::{public_tokens, response_cache, settings, users},
     state::AppState,
 };
 
@@ -37,13 +37,13 @@ pub fn router() -> Router<AppState> {
 pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> Result<Json<MeResponse>> {
     let user = current_user(&headers, &state).await?;
     let user_settings = settings::get(&state.db, user.id).await?;
-    let public_token = public_tokens::token_for_user(&state.db, user.id).await?;
+    let public_sharing_enabled = public_tokens::enabled_for_user(&state.db, user.id).await?;
     Ok(Json(MeResponse {
         user: user.into(),
         settings: user_settings,
         public_sharing: PublicSharingResponse {
-            enabled: public_token.is_some(),
-            token: public_token,
+            enabled: public_sharing_enabled,
+            token: None,
         },
     }))
 }
@@ -61,13 +61,19 @@ pub async fn update_settings(
 ) -> Result<Json<MeResponse>> {
     let user = current_user(&headers, &state).await?;
     let user_settings = settings::update(&state.db, user.id, &patch).await?;
-    let public_token = public_tokens::token_for_user(&state.db, user.id).await?;
+    response_cache::invalidate_namespace(
+        &state.db,
+        response_cache::STATS_OVERVIEW_NAMESPACE,
+        user.id,
+    )
+    .await?;
+    let public_sharing_enabled = public_tokens::enabled_for_user(&state.db, user.id).await?;
     Ok(Json(MeResponse {
         user: user.into(),
         settings: user_settings,
         public_sharing: PublicSharingResponse {
-            enabled: public_token.is_some(),
-            token: public_token,
+            enabled: public_sharing_enabled,
+            token: None,
         },
     }))
 }
@@ -91,13 +97,13 @@ pub async fn update_profile(
     }
     let updated = users::update_profile(&state.db, user.id, patch.username.as_deref()).await?;
     let user_settings = settings::get(&state.db, user.id).await?;
-    let public_token = public_tokens::token_for_user(&state.db, updated.id).await?;
+    let public_sharing_enabled = public_tokens::enabled_for_user(&state.db, updated.id).await?;
     Ok(Json(MeResponse {
         user: updated.into(),
         settings: user_settings,
         public_sharing: PublicSharingResponse {
-            enabled: public_token.is_some(),
-            token: public_token,
+            enabled: public_sharing_enabled,
+            token: None,
         },
     }))
 }
@@ -112,10 +118,10 @@ pub async fn get_public_token(
     headers: HeaderMap,
 ) -> Result<Json<PublicSharingResponse>> {
     let user = current_user(&headers, &state).await?;
-    let token = public_tokens::token_for_user(&state.db, user.id).await?;
+    let enabled = public_tokens::enabled_for_user(&state.db, user.id).await?;
     Ok(Json(PublicSharingResponse {
-        enabled: token.is_some(),
-        token,
+        enabled,
+        token: None,
     }))
 }
 

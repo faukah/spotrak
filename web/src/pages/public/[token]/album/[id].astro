@@ -4,10 +4,8 @@ import PublicInvalid from '../../../../components/public/PublicInvalid.astro';
 import CatalogDetail from '../../../../components/cards/CatalogDetail.svelte';
 import type { AlbumDetail } from '../../../../lib/api/types';
 import { publicDetailContext } from '../../../../lib/public-share';
-import { viewTransitionName } from '../../../../lib/images';
-
 const { token = '', id = '' } = Astro.params;
-const transitionName = Astro.url.searchParams.get('vt') ?? viewTransitionName(id);
+const transitionName = Astro.url.searchParams.get('vt') ?? undefined;
 const { apiPrefix, valid, initialDetail } = await publicDetailContext<AlbumDetail>(Astro.request, token, `/albums/${id}`);
 ---
 

@@ -1,16 +1,12 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import { Check, ChevronDown } from '@lucide/svelte';
-  import * as echarts from 'echarts/core';
-  import { BarChart } from 'echarts/charts';
-  import { GridComponent, TooltipComponent } from 'echarts/components';
-  import { CanvasRenderer } from 'echarts/renderers';
+  import { BarChart } from 'layerchart';
   import { apiFetch } from '../../lib/api/client';
   import type {
     EntityStats,
     HistoryEvent,
     HourRepartitionPoint,
-    MeResponse,
     OverviewStatsResponse,
     StatsRangeKey,
     StatsRangeResponse,
@@ -18,17 +14,18 @@
     TopArtist,
     TopTrack,
   } from '../../lib/api/types';
-  import { chartColors, chartTooltip } from '../../lib/charts/theme';
+  import { chartColor, formatCountValue, formatDurationValue, numericValue, tickStep } from '../../lib/charts/theme';
   import { formatDateTime, formatDuration } from '../../lib/date/format';
   import { transitionHref, viewTransitionName } from '../../lib/images';
-  import { formatChartValue } from '../../lib/stats/format';
   import CoverArt from '../media/CoverArt.svelte';
   import { Button } from '../ui/button';
   import * as Card from '../ui/card';
-
-  echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
+  import * as Chart from '../ui/chart';
 
   type Trend = { text: string; tone: 'up' | 'down' | 'flat' } | null;
+  type TooltipItem = { color?: string; key?: string };
+
+  export let initialOverview: OverviewStatsResponse | null = null;
 
   const currentYear = new Date().getFullYear();
   const rangeButtons: { key: StatsRangeKey; label: string }[] = [
@@ -39,36 +36,60 @@
     { key: 'all', label: 'All' },
   ];
 
-  let rangeKey: StatsRangeKey = 'today';
+  let rangeKey: StatsRangeKey = initialOverview?.range.range ?? 'today';
   let selectedYear = currentYear;
-  let availableYears: number[] = [currentYear];
-  let hourFormat: '12' | '24' = '24';
+  let availableYears: number[] = initialOverview?.available_years.length ? initialOverview.available_years : [currentYear];
+  let hourFormat: '12' | '24' = initialOverview?.hour_format ?? '24';
+  let timezone = initialOverview?.timezone ?? null;
 
-  let summary: SummaryStats | null = null;
-  let previousSummary: SummaryStats | null = null;
-  let bestArtist: TopArtist | null = null;
-  let bestArtistStats: EntityStats | null = null;
-  let bestSong: TopTrack | null = null;
-  let hours: HourRepartitionPoint[] = [];
-  let history: HistoryEvent[] = [];
+  let summary: SummaryStats | null = initialOverview?.summary ?? null;
+  let previousSummary: SummaryStats | null = initialOverview?.previous_summary ?? null;
+  let bestArtist: TopArtist | null = initialOverview?.best_artist ?? null;
+  let bestArtistStats: EntityStats | null = initialOverview?.best_artist_stats ?? null;
+  let bestSong: TopTrack | null = initialOverview?.best_song ?? null;
+  let hours: HourRepartitionPoint[] = initialOverview?.hourly_distribution ?? [];
+  let history: HistoryEvent[] = initialOverview?.history ?? [];
 
-  let loading = true;
+  let loading = initialOverview === null;
+  let mounted = false;
+  let refreshing = false;
   let error: string | null = null;
   let requestId = 0;
 
-  let hourElement: HTMLDivElement | null = null;
+  const overviewCache = new Map<string, OverviewStatsResponse>();
+  const overviewRequests = new Map<string, Promise<OverviewStatsResponse>>();
+
   let rangeMenuElement: HTMLDivElement | null = null;
-  let hourChart: echarts.ECharts | null = null;
-  let resizeObserver: ResizeObserver | null = null;
   let rangeMenuOpen = false;
-  let activeRange: StatsRangeResponse = {
+  let activeRange: StatsRangeResponse = initialOverview?.range ?? {
     range: 'today',
     label: 'Today',
     comparison_label: 'yesterday',
   };
 
+  const hourChartConfig = {
+    plays: { label: 'plays', color: chartColor(0) },
+    minutes: { label: 'time', color: chartColor(1) },
+  } satisfies Chart.ChartConfig;
+
+  const hourChartSeries = [
+    { key: 'plays', label: hourChartConfig.plays.label, value: 'plays', color: hourChartConfig.plays.color },
+    { key: 'minutes', label: hourChartConfig.minutes.label, value: 'minutes', color: hourChartConfig.minutes.color },
+  ];
+
+  $: hourChartData = Array.from({ length: 24 }, (_, hour) => {
+    const point = hours.find((item) => item.hour === hour);
+    return {
+      label: formatHour(hour),
+      plays: point?.count ?? 0,
+      minutes: (point?.duration_ms ?? 0) / 60_000,
+    };
+  });
+  $: hourTickStep = tickStep(hourChartData.length, 6);
+  $: selectedRangeText = rangeLabel(rangeKey, selectedYear);
+
   onMount(() => {
-    const handleThemeChange = () => renderHourChart();
+    mounted = true;
     const handlePointerDown = (event: PointerEvent) => {
       if (!rangeMenuOpen || !rangeMenuElement || !(event.target instanceof Node)) return;
       if (!rangeMenuElement.contains(event.target)) rangeMenuOpen = false;
@@ -76,76 +97,120 @@
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') rangeMenuOpen = false;
     };
-    resizeObserver = new ResizeObserver(() => hourChart?.resize());
-    window.addEventListener('spotrak:theme-change', handleThemeChange);
     document.addEventListener('pointerdown', handlePointerDown);
     window.addEventListener('keydown', handleKeyDown);
     void initialize();
     return () => {
-      window.removeEventListener('spotrak:theme-change', handleThemeChange);
       document.removeEventListener('pointerdown', handlePointerDown);
       window.removeEventListener('keydown', handleKeyDown);
       requestId += 1;
-      destroyHourChart();
     };
   });
 
   async function initialize() {
-    try {
-      const me = await apiFetch<MeResponse>('/users/me');
-      hourFormat = me.settings.hour_format ?? '24';
-    } catch {
-      hourFormat = '24';
+    if (initialOverview) {
+      overviewCache.set(overviewPath(), initialOverview);
+      if (rangeKey === 'today') void prefetchOverview('week');
+      return;
     }
+
     await loadOverview();
+    if (rangeKey === 'today') void prefetchOverview('week');
   }
 
   async function loadOverview() {
     const request = ++requestId;
-    destroyHourChart();
-    loading = true;
+    const path = overviewPath();
+    const cached = overviewCache.get(path);
+    if (cached) {
+      error = null;
+      applyOverview(cached);
+      loading = false;
+      refreshing = false;
+      return;
+    }
+
+    loading = summary === null;
+    refreshing = summary !== null;
     error = null;
 
     try {
-      const overview = await apiFetch<OverviewStatsResponse>(overviewPath());
+      const overview = await fetchOverview(path);
 
       if (request !== requestId) return;
-      activeRange = overview.range;
-      availableYears = overview.available_years.length > 0 ? overview.available_years : [currentYear];
-      summary = overview.summary;
-      previousSummary = overview.previous_summary ?? null;
-      bestArtist = overview.best_artist ?? null;
-      bestArtistStats = overview.best_artist_stats ?? null;
-      bestSong = overview.best_song ?? null;
-      hours = overview.hourly_distribution;
-      history = overview.history;
+      applyOverview(overview);
     } catch (err) {
       if (request !== requestId) return;
       error = err instanceof Error ? err.message : 'Unable to load overview';
-      summary = null;
-      previousSummary = null;
-      bestArtist = null;
-      bestArtistStats = null;
-      bestSong = null;
-      hours = [];
-      history = [];
+      if (summary === null) {
+        previousSummary = null;
+        bestArtist = null;
+        bestArtistStats = null;
+        bestSong = null;
+        hours = [];
+        history = [];
+      }
     } finally {
-      if (request === requestId) loading = false;
+      if (request === requestId) {
+        loading = false;
+        refreshing = false;
+      }
     }
+  }
 
-    await tick();
-    if (request === requestId) renderHourChart();
+  async function prefetchOverview(range: StatsRangeKey) {
+    try {
+      await fetchOverview(overviewPathFor(range, selectedYear));
+    } catch {
+      return;
+    }
+  }
+
+  function fetchOverview(path: string): Promise<OverviewStatsResponse> {
+    const cached = overviewCache.get(path);
+    if (cached) return Promise.resolve(cached);
+
+    const inFlight = overviewRequests.get(path);
+    if (inFlight) return inFlight;
+
+    const request = apiFetch<OverviewStatsResponse>(path).then((overview) => {
+      overviewCache.set(path, overview);
+      return overview;
+    }).finally(() => {
+      overviewRequests.delete(path);
+    });
+    overviewRequests.set(path, request);
+    return request;
+  }
+
+  function applyOverview(overview: OverviewStatsResponse) {
+    activeRange = overview.range;
+    rangeKey = overview.range.range;
+    availableYears = overview.available_years.length > 0 ? overview.available_years : [currentYear];
+    summary = overview.summary;
+    previousSummary = overview.previous_summary ?? null;
+    bestArtist = overview.best_artist ?? null;
+    bestArtistStats = overview.best_artist_stats ?? null;
+    bestSong = overview.best_song ?? null;
+    hours = overview.hourly_distribution;
+    history = overview.history;
+    hourFormat = overview.hour_format;
+    timezone = overview.timezone;
   }
 
   function overviewPath() {
-    const params = new URLSearchParams({ range: rangeKey });
-    if (rangeKey === 'selected-year') params.set('year', String(selectedYear));
+    return overviewPathFor(rangeKey, selectedYear);
+  }
+
+  function overviewPathFor(range: StatsRangeKey, year: number) {
+    const params = new URLSearchParams({ range });
+    if (range === 'selected-year') params.set('year', String(year));
     return `/stats/overview?${params.toString()}`;
   }
 
-  function selectedRangeLabel() {
-    if (rangeKey === 'selected-year') return String(selectedYear);
-    const option = rangeButtons.find((item) => item.key === rangeKey);
+  function rangeLabel(range: StatsRangeKey, year: number): string {
+    if (range === 'selected-year') return String(year);
+    const option = rangeButtons.find((item) => item.key === range);
     if (option?.key === 'all') return 'All time';
     return option?.label ?? activeRange.label;
   }
@@ -203,67 +268,26 @@
     return viewTransitionName(artist.id, `overview-best-artist-${activeRange.range}-${artist.id}`);
   }
 
-  function destroyHourChart() {
-    resizeObserver?.disconnect();
-    hourChart?.dispose();
-    hourChart = null;
+  function formatHourAxis(value: unknown): string {
+    return String(value);
   }
 
-  function renderHourChart() {
-    if (!hourElement || loading || error) return;
-    const colors = chartColors();
-    const byHour = new Map(hours.map((point) => [point.hour, point]));
-    const allHours = Array.from({ length: 24 }, (_, hour) => hour);
-    hourChart ??= echarts.init(hourElement);
-    resizeObserver?.observe(hourElement);
-    hourChart.setOption({
-      backgroundColor: 'transparent',
-      color: [colors.primary],
-      tooltip: {
-        trigger: 'axis',
-        ...chartTooltip(colors),
-        formatter: (params: unknown) => hourTooltip(params),
-      },
-      grid: { left: 42, right: 14, top: 12, bottom: 34 },
-      xAxis: {
-        type: 'category',
-        data: allHours.map(formatHour),
-        axisLabel: { color: colors.muted, fontSize: 10, hideOverlap: true },
-        axisLine: { lineStyle: { color: colors.border } },
-        axisTick: { show: false },
-      },
-      yAxis: {
-        type: 'value',
-        splitLine: { lineStyle: { color: colors.border, opacity: 0.38 } },
-        axisLabel: { color: colors.muted, fontSize: 10, formatter: (value: number) => formatChartValue(value, 'count') },
-      },
-      series: [
-        {
-          type: 'bar',
-          data: allHours.map((hour) => byHour.get(hour)?.count ?? 0),
-          barMaxWidth: 18,
-          itemStyle: { borderRadius: [2, 2, 0, 0] },
-        },
-      ],
-    });
+  function formatHourValue(value: unknown): string {
+    return formatCountValue(value);
   }
 
-  function hourTooltip(params: unknown) {
-    const first = Array.isArray(params) ? params[0] : params;
-    const dataIndex = typeof first === 'object' && first && 'dataIndex' in first ? Number(first.dataIndex) : 0;
-    const point = hours.find((item) => item.hour === dataIndex);
-    return `
-      <div class="overview-tooltip">
-        <strong>${formatHour(dataIndex)}</strong>
-        <span>${formatNumber(point?.count ?? 0)} plays</span>
-        <span>${formatDuration(point?.duration_ms ?? 0)}</span>
-      </div>
-    `;
+  function formatHourTooltip(value: unknown, item: TooltipItem): string {
+    if (item.key === 'minutes') return formatDurationValue(numericValue(value) * 60_000);
+    return `${formatCountValue(value)} plays`;
+  }
+
+  function tooltipColor(item: TooltipItem): string {
+    return item.color ?? 'currentColor';
   }
 
 </script>
 
-<section class="overview-stack">
+<section class="overview-stack" aria-busy={refreshing}>
   <header class="overview-header">
     <div class="page-title">
       <h1>Overview</h1>
@@ -278,13 +302,13 @@
           aria-expanded={rangeMenuOpen}
           onclick={() => (rangeMenuOpen = !rangeMenuOpen)}
         >
-          <span>{selectedRangeLabel()}</span>
+          <span>{selectedRangeText}</span>
           <ChevronDown class="range-trigger-icon" aria-hidden="true" />
         </Button>
         {#if rangeMenuOpen}
           <div class="range-dropdown" role="menu" aria-label="Choose overview time range">
             <div class="dropdown-group">
-              {#each rangeButtons as option}
+              {#each rangeButtons as option (option.key)}
                 <button type="button" role="menuitemradio" aria-checked={rangeKey === option.key} class:active-range={rangeKey === option.key} onclick={() => setRange(option.key)}>
                   <span>{option.key === 'all' ? 'All time' : option.label}</span>
                   {#if rangeKey === option.key}<Check aria-hidden="true" />{/if}
@@ -294,7 +318,7 @@
             <div class="dropdown-separator"></div>
             <span class="dropdown-label">Years</span>
             <div class="dropdown-group years">
-              {#each availableYears as year}
+              {#each availableYears as year (year)}
                 <button type="button" role="menuitemradio" aria-checked={rangeKey === 'selected-year' && selectedYear === year} class:active-range={rangeKey === 'selected-year' && selectedYear === year} onclick={() => chooseYear(year)}>
                   <span>{year}</span>
                   {#if rangeKey === 'selected-year' && selectedYear === year}<Check aria-hidden="true" />{/if}
@@ -331,7 +355,6 @@
     <section class="summary-grid" aria-label={`${activeRange.label} summary`}>
       <Card.Root class="metric-card" size="sm">
         <Card.Header>
-          <Card.Description>{activeRange.label}</Card.Description>
           <Card.Title>Songs listened</Card.Title>
         </Card.Header>
         <Card.Content>
@@ -343,7 +366,6 @@
 
       <Card.Root class="metric-card" size="sm">
         <Card.Header>
-          <Card.Description>{activeRange.label}</Card.Description>
           <Card.Title>Time listened</Card.Title>
         </Card.Header>
         <Card.Content>
@@ -355,7 +377,6 @@
 
       <Card.Root class="metric-card" size="sm">
         <Card.Header>
-          <Card.Description>{activeRange.label}</Card.Description>
           <Card.Title>Artists listened</Card.Title>
         </Card.Header>
         <Card.Content>
@@ -371,13 +392,12 @@
       <div class="spotlight-stack" aria-label={`${activeRange.label} highlights`}>
         <Card.Root class="feature-card" size="sm">
         <Card.Header>
-          <Card.Description>{activeRange.label}</Card.Description>
           <Card.Title>Best artist</Card.Title>
         </Card.Header>
         <Card.Content>
           {#if bestArtist}
             <div class="entity-row">
-              <CoverArt src={bestArtist.image_url} name={bestArtist.name} href={transitionHref(`/artist/${bestArtist.id}`, artistTransition(bestArtist))} size="md" transitionName={artistTransition(bestArtist)} />
+              <CoverArt src={bestArtist.image_url} name={bestArtist.name} href={transitionHref(`/artist/${bestArtist.id}`, artistTransition(bestArtist))} size="lg" transitionName={artistTransition(bestArtist)} />
               <div class="entity-copy">
                 <a class="entity-title" href={`/artist/${bestArtist.id}`}>{bestArtist.name}</a>
                 <div class="stats-line">
@@ -395,13 +415,12 @@
 
         <Card.Root class="feature-card" size="sm">
         <Card.Header>
-          <Card.Description>{activeRange.label}</Card.Description>
           <Card.Title>Best song</Card.Title>
         </Card.Header>
         <Card.Content>
           {#if bestSong}
             <div class="entity-row">
-              <CoverArt src={bestSong.image_url} name={bestSong.name} href={transitionHref(`/track/${bestSong.id}`, songTransition(bestSong))} size="md" transitionName={songTransition(bestSong)} />
+              <CoverArt src={bestSong.image_url} name={bestSong.name} href={transitionHref(`/track/${bestSong.id}`, songTransition(bestSong))} size="lg" transitionName={songTransition(bestSong)} />
               <div class="entity-copy">
                 <a class="entity-title" href={`/track/${bestSong.id}`}>{bestSong.name}</a>
                 <span class="muted-line">{bestSong.artist_name} · {bestSong.album_name}</span>
@@ -426,8 +445,37 @@
       <Card.Content>
         {#if hours.length === 0}
           <p class="state">No hourly listening data for this range.</p>
+        {:else if !mounted}
+          <div class="skeleton chart-loading" aria-hidden="true"></div>
         {:else}
-          <div bind:this={hourElement} class="hour-chart" role="img" aria-label={`Listening distribution by local hour, ${hourFormat}-hour format`}></div>
+          <Chart.Container config={hourChartConfig} class="hour-chart" role="img" aria-label={`Listening distribution by local hour, ${hourFormat}-hour format`}>
+            <BarChart
+              data={hourChartData}
+              x="label"
+              yBaseline={0}
+              series={hourChartSeries}
+              seriesLayout="group"
+              bandPadding={0.24}
+              padding={{ left: 42, right: 14, top: 12, bottom: 34 }}
+              props={{
+                xAxis: { format: formatHourAxis, ticks: hourTickStep },
+                yAxis: { format: formatHourValue, tickSpacing: 52 },
+                tooltip: { item: { format: formatHourValue } },
+              }}
+            >
+              {#snippet tooltip()}
+                <Chart.Tooltip>
+                  {#snippet formatter({ value, name, item })}
+                    <div class="tooltip-row">
+                      <span class="tooltip-swatch" style:background={tooltipColor(item)}></span>
+                      <span class="tooltip-name">{name}</span>
+                      <span class="tooltip-value">{formatHourTooltip(value, item)}</span>
+                    </div>
+                  {/snippet}
+                </Chart.Tooltip>
+              {/snippet}
+            </BarChart>
+          </Chart.Container>
         {/if}
       </Card.Content>
       </Card.Root>
@@ -435,7 +483,6 @@
 
     <Card.Root class="history-card" size="sm">
       <Card.Header>
-        <Card.Description>{activeRange.label}</Card.Description>
         <Card.Title>Listening history</Card.Title>
       </Card.Header>
       <Card.Content>
@@ -443,14 +490,14 @@
           <p class="state">No history for this range.</p>
         {:else}
           <ol class="history-list">
-            {#each history as event}
+            {#each history as event (event.id)}
               <li>
                 <CoverArt src={event.image_url} name={event.track_name} href={transitionHref(`/track/${event.track_id}`, historyTransition(event))} size="sm" transitionName={historyTransition(event)} />
                 <div class="history-copy">
                   <a class="entity-title" href={`/track/${event.track_id}`}>{event.track_name}</a>
                   <span><a href={`/artist/${event.artist_id}`}>{event.artist_name}</a> · <a href={`/album/${event.album_id}`}>{event.album_name}</a></span>
                 </div>
-                <time datetime={event.played_at}>{formatDateTime(event.played_at)}</time>
+                <time datetime={event.played_at}>{formatDateTime(event.played_at, timezone)}</time>
                 <small>{formatDuration(event.duration_ms)}</small>
               </li>
             {/each}
@@ -571,7 +618,7 @@
   }
 
   .insights-grid {
-    grid-template-columns: minmax(18rem, 0.75fr) minmax(26rem, 1.35fr);
+    grid-template-columns: minmax(20rem, 0.95fr) minmax(24rem, 1.25fr);
     align-items: stretch;
   }
 
@@ -603,13 +650,13 @@
 
   :global(.feature-card [data-slot='card-content']) {
     display: flex;
-    min-height: 4.9rem;
+    min-height: 8.5rem;
     align-items: center;
   }
 
   .entity-row {
     display: flex;
-    gap: 0.7rem;
+    gap: 0.9rem;
     align-items: center;
     min-width: 0;
   }
@@ -637,6 +684,15 @@
     color: var(--color-primary);
   }
 
+  :global(.feature-card) .entity-title {
+    font-size: clamp(1.08rem, 1.6vw, 1.32rem);
+  }
+
+  :global(.feature-card) .stats-line,
+  :global(.feature-card) .muted-line {
+    font-size: 0.86rem;
+  }
+
   .stats-line {
     display: flex;
     flex-wrap: wrap;
@@ -660,22 +716,37 @@
     height: 100%;
   }
 
-  .hour-chart {
+  :global(.hour-chart) {
     width: 100%;
     min-height: 15.75rem;
   }
 
-  :global(.overview-tooltip) {
+  .tooltip-row {
     display: grid;
-    gap: 0.2rem;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.45rem;
+    align-items: center;
+    min-width: 11rem;
   }
 
-  :global(.overview-tooltip strong) {
+  .tooltip-swatch {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 999px;
+  }
+
+  .tooltip-name {
+    overflow: hidden;
     color: var(--color-text);
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  :global(.overview-tooltip span) {
+  .tooltip-value {
     color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   .history-list {

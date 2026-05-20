@@ -38,6 +38,7 @@ const navItems = nav.map(([label, href]) => ({ label, href, active: isActive(hre
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content={Astro.generator} />
     <meta name="theme-color" content="#eeece3" />
+    <meta name="referrer" content="strict-origin" />
     <ThemeScript />
     <title>{title}</title>
     <ClientRouter />
@@ -45,12 +46,12 @@ const navItems = nav.map(([label, href]) => ({ label, href, active: isActive(hre
   <body>
     {guard && <PublicShareGuard token={token} client:load />}
     <header class="site-header public-header">
-      <a class="brand" href={base} aria-label="Shared Spotrak overview">
+      <a class="brand" href={base} aria-label="Shared Spotrak overview" data-astro-prefetch="hover">
         <span class="brand-mark">ST</span>
         <span>Shared stats</span>
       </a>
       <nav class="shell-nav desktop-nav" aria-label="Public navigation">
-        {navItems.map((item) => <a href={item.href} aria-current={item.active ? 'page' : undefined}>{item.label}</a>)}
+        {navItems.map((item) => <a href={item.href} aria-current={item.active ? 'page' : undefined} data-astro-prefetch="hover">{item.label}</a>)}
       </nav>
       <div class="site-controls desktop-controls">
         <ThemeToggle client:load />

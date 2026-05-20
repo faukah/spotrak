@@ -180,22 +180,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/spotify/profile": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["spotify_profile"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/auth/spotify/start": {
         parameters: {
             query?: never;
@@ -462,54 +446,6 @@ export interface paths {
         get: operations["search_catalog"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/spotify/play": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["play"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/spotify/playlists": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["playlists"];
-        put?: never;
-        post: operations["create_playlist"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/spotify/playlists/{id}/tracks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["add_tracks_to_playlist"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1140,10 +1076,12 @@ export interface components {
             best_artist_stats?: null | components["schemas"]["EntityStats"];
             best_song?: null | components["schemas"]["TopTrack"];
             history: components["schemas"]["HistoryEvent"][];
+            hour_format: string;
             hourly_distribution: components["schemas"]["HourRepartitionPoint"][];
             previous_summary?: null | components["schemas"]["SummaryStats"];
             range: components["schemas"]["StatsRangeResponse"];
             summary: components["schemas"]["SummaryStats"];
+            timezone: string;
         };
         ProfilePatchRequest: {
             username?: string | null;
@@ -1184,30 +1122,6 @@ export interface components {
             nb_elements?: number | null;
             preferred_stats_period?: string | null;
             timezone?: string | null;
-        };
-        SpotifyAddTracksRequest: {
-            uris: string[];
-        };
-        SpotifyCreatePlaylistRequest: {
-            name: string;
-            public?: boolean;
-        };
-        SpotifyPlayRequest: {
-            track_id?: string | null;
-            uri?: string | null;
-        };
-        SpotifyPlaylistSummary: {
-            href?: string | null;
-            id: string;
-            name: string;
-            uri?: string | null;
-        };
-        SpotifyProfile: {
-            display_name?: string | null;
-            email?: string | null;
-            href?: string | null;
-            id: string;
-            uri?: string | null;
         };
         StatsInterval: {
             /** Format: date-time */
@@ -1655,31 +1569,6 @@ export interface operations {
             };
         };
     };
-    spotify_profile: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Current Spotify profile */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     spotify_start: {
         parameters: {
             query?: never;
@@ -2102,96 +1991,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SearchResults"];
                 };
-            };
-        };
-    };
-    play: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SpotifyPlayRequest"];
-            };
-        };
-        responses: {
-            /** @description Playback started */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    playlists: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Spotify playlists */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SpotifyPlaylistSummary"][];
-                };
-            };
-        };
-    };
-    create_playlist: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SpotifyCreatePlaylistRequest"];
-            };
-        };
-        responses: {
-            /** @description Created Spotify playlist */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SpotifyPlaylistSummary"];
-                };
-            };
-        };
-    };
-    add_tracks_to_playlist: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SpotifyAddTracksRequest"];
-            };
-        };
-        responses: {
-            /** @description Tracks added to Spotify playlist */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -2834,6 +2633,13 @@ export interface operations {
         responses: {
             /** @description Prometheus metrics */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

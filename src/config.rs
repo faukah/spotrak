@@ -1,9 +1,11 @@
-use std::{env, fmt, path::PathBuf, time::Duration};
+use std::{env, fmt, net::IpAddr, path::PathBuf, time::Duration};
 
 use chrono_tz::Tz;
 use secrecy::SecretString;
 use thiserror::Error;
 use url::Url;
+
+pub const MIN_SPOTIFY_API_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct Config {
@@ -58,11 +60,13 @@ impl Config {
         )?);
         // Spotify no longer supports several bulk metadata endpoints, so imports may
         // need many single-item requests. Hard-cap throughput at one Spotify request
-        // every two seconds; deployments may configure a larger delay, but not a smaller one.
-        let spotify_api_delay_ms = parse_or("SPOTIFY_API_DELAY_MS", 2000_u64)?.max(2000);
-        let spotify_api_delay = Duration::from_millis(spotify_api_delay_ms);
+        // every five seconds; deployments may configure a larger delay, but not a smaller one.
+        let spotify_api_delay_ms = parse_or("SPOTIFY_API_DELAY_MS", 5000_u64)?;
+        let spotify_api_delay =
+            Duration::from_millis(spotify_api_delay_ms).max(MIN_SPOTIFY_API_DELAY);
+        let cors_default = client_endpoint.origin().ascii_serialization();
         let cors = expand_cors(
-            parse_cors(&env::var("CORS").unwrap_or_else(|_| "*".to_owned()))?,
+            parse_cors(&env::var("CORS").unwrap_or(cors_default))?,
             &client_endpoint,
         )?;
         let import_dir =
@@ -71,18 +75,9 @@ impl Config {
         let prometheus_username = optional_non_empty("PROMETHEUS_USERNAME");
         let prometheus_password = optional_non_empty("PROMETHEUS_PASSWORD").map(SecretString::from);
 
-        if api_endpoint.scheme() != "http" && api_endpoint.scheme() != "https" {
-            return Err(ConfigError::Invalid {
-                name: "API_ENDPOINT",
-                message: "must use http or https".to_owned(),
-            });
-        }
-        if client_endpoint.scheme() != "http" && client_endpoint.scheme() != "https" {
-            return Err(ConfigError::Invalid {
-                name: "CLIENT_ENDPOINT",
-                message: "must use http or https".to_owned(),
-            });
-        }
+        validate_http_url("API_ENDPOINT", &api_endpoint)?;
+        validate_http_url("CLIENT_ENDPOINT", &client_endpoint)?;
+        validate_spotify_redirect_url(&api_endpoint)?;
         if spotify_public.trim().is_empty() {
             return Err(ConfigError::Invalid {
                 name: "SPOTIFY_PUBLIC",
@@ -167,6 +162,36 @@ fn parse_url(name: &'static str, value: &str) -> Result<Url, ConfigError> {
         name,
         message: err.to_string(),
     })
+}
+
+fn validate_http_url(name: &'static str, url: &Url) -> Result<(), ConfigError> {
+    if url.scheme() == "http" || url.scheme() == "https" {
+        return Ok(());
+    }
+    Err(ConfigError::Invalid {
+        name,
+        message: "must use http or https".to_owned(),
+    })
+}
+
+fn validate_spotify_redirect_url(url: &Url) -> Result<(), ConfigError> {
+    if url.scheme() == "https" || is_loopback_url(url) {
+        return Ok(());
+    }
+    Err(ConfigError::Invalid {
+        name: "API_ENDPOINT",
+        message: "Spotify OAuth redirect URI must use https unless the host is localhost/loopback for development".to_owned(),
+    })
+}
+
+fn is_loopback_url(url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
 }
 
 fn parse_or<T>(name: &'static str, default: T) -> Result<T, ConfigError>
@@ -294,5 +319,21 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(origins.contains(&"http://127.0.0.1:4322".to_owned()));
         assert!(origins.contains(&"http://localhost:4322".to_owned()));
+    }
+
+    #[test]
+    fn spotify_redirect_url_requires_https_except_loopback() {
+        assert!(
+            validate_spotify_redirect_url(&Url::parse("https://spotrak.example").unwrap()).is_ok()
+        );
+        assert!(
+            validate_spotify_redirect_url(&Url::parse("http://127.0.0.1:8080").unwrap()).is_ok()
+        );
+        assert!(
+            validate_spotify_redirect_url(&Url::parse("http://localhost:8080").unwrap()).is_ok()
+        );
+        assert!(
+            validate_spotify_redirect_url(&Url::parse("http://spotrak.example").unwrap()).is_err()
+        );
     }
 }

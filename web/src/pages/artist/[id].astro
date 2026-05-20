@@ -3,9 +3,8 @@ import CatalogDetail from '../../components/cards/CatalogDetail.svelte';
 import AppLayout from '../../components/layout/AppLayout.astro';
 import { serverApiFetch } from '../../lib/api/server';
 import type { ArtistDetail } from '../../lib/api/types';
-import { viewTransitionName } from '../../lib/images';
 const { id = '' } = Astro.params;
-const transitionName = Astro.url.searchParams.get('vt') ?? viewTransitionName(id);
+const transitionName = Astro.url.searchParams.get('vt') ?? undefined;
 const initialDetail = await serverApiFetch<ArtistDetail>(Astro.request, `/artists/${id}`);
 ---
 

@@ -204,7 +204,7 @@ pub async fn top_artists(
         SELECT ar.id, ar.name,
                COALESCE(
                  ar.images->0->>'url',
-                 (array_remove(array_agg(COALESCE(t.images->0->>'url', al.images->0->>'url') ORDER BY le.played_at DESC), NULL))[1]
+                 (array_remove(array_agg(COALESCE(t.images->0->>'url', al.images->0->>'url') ORDER BY le.played_at DESC, le.id DESC), NULL))[1]
                ) AS image_url,
                COUNT(*)::bigint AS count,
                COALESCE(SUM(le.duration_ms), 0)::bigint AS duration_ms
@@ -250,7 +250,13 @@ pub async fn top_albums(
                COALESCE(SUM(le.duration_ms), 0)::bigint AS duration_ms
         FROM listening_events le
         JOIN albums a ON a.id = le.album_id
-        LEFT JOIN album_artists aa ON aa.album_id = a.id AND aa.position = 0
+        LEFT JOIN LATERAL (
+          SELECT artist_id
+          FROM album_artists
+          WHERE album_id = a.id
+          ORDER BY position ASC, artist_id ASC
+          LIMIT 1
+        ) aa ON TRUE
         LEFT JOIN artists ar ON ar.id = aa.artist_id
         WHERE le.user_id = $1
           AND le.blacklisted_by IS NULL
@@ -736,7 +742,7 @@ pub async fn top_artists_by_bucket(
                  ar.id, ar.name,
                  COALESCE(
                    ar.images->0->>'url',
-                   (array_remove(array_agg(COALESCE(t.images->0->>'url', a.images->0->>'url') ORDER BY le.played_at DESC), NULL))[1]
+                   (array_remove(array_agg(COALESCE(t.images->0->>'url', a.images->0->>'url') ORDER BY le.played_at DESC, le.id DESC), NULL))[1]
                  ) AS image_url,
                  COUNT(*)::bigint AS count,
                  COALESCE(SUM(le.duration_ms), 0)::bigint AS duration_ms,
@@ -798,7 +804,13 @@ pub async fn top_albums_by_bucket(
                  ) AS rank
           FROM listening_events le
           JOIN albums a ON a.id = le.album_id
-          LEFT JOIN album_artists aa ON aa.album_id = a.id AND aa.position = 0
+          LEFT JOIN LATERAL (
+            SELECT artist_id
+            FROM album_artists
+            WHERE album_id = a.id
+            ORDER BY position ASC, artist_id ASC
+            LIMIT 1
+          ) aa ON TRUE
           LEFT JOIN artists ar ON ar.id = aa.artist_id
           WHERE le.user_id = $1
             AND le.blacklisted_by IS NULL

@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
 };
 use serde_json::json;
+use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
 
 use crate::{
@@ -12,7 +13,7 @@ use crate::{
     domain::import::ImportJob,
     dto::responses::{ImportJobResponse, ImportJobsResponse},
     error::{AppError, Result},
-    repositories::{imports, listening_events},
+    repositories::{imports, listening_events, response_cache},
     state::AppState,
 };
 
@@ -74,7 +75,7 @@ async fn upload(
         .map_err(|err| AppError::internal(err.to_string()))?;
 
     let mut filenames = Vec::new();
-    while let Some(field) = multipart
+    while let Some(mut field) = multipart
         .next_field()
         .await
         .map_err(|err| AppError::validation(err.to_string()))?
@@ -82,24 +83,36 @@ async fn upload(
         let Some(original) = field.file_name().map(str::to_owned) else {
             continue;
         };
-        let safe_name = sanitize_filename(&original);
+        let safe_name = sanitize_filename(&original)?;
         let path = job_dir.join(format!("{}-{}", Uuid::new_v4(), safe_name));
-        let bytes = field
-            .bytes()
-            .await
-            .map_err(|err| AppError::validation(err.to_string()))?;
-        let size = bytes.len() as i64;
-        if size == 0 {
-            continue;
-        }
-        if size as u64 > state.config.max_import_cache_size {
-            return Err(AppError::validation(
-                "uploaded file exceeds MAX_IMPORT_CACHE_SIZE",
-            ));
-        }
-        tokio::fs::write(&path, &bytes)
+        let mut file = tokio::fs::File::create(&path)
             .await
             .map_err(|err| AppError::internal(err.to_string()))?;
+        let mut size = 0_i64;
+        while let Some(chunk) = field
+            .chunk()
+            .await
+            .map_err(|err| AppError::validation(err.to_string()))?
+        {
+            size +=
+                i64::try_from(chunk.len()).map_err(|err| AppError::internal(err.to_string()))?;
+            if size as u64 > state.config.max_import_cache_size {
+                let _ = tokio::fs::remove_file(&path).await;
+                return Err(AppError::validation(
+                    "uploaded file exceeds MAX_IMPORT_CACHE_SIZE",
+                ));
+            }
+            file.write_all(&chunk)
+                .await
+                .map_err(|err| AppError::internal(err.to_string()))?;
+        }
+        file.flush()
+            .await
+            .map_err(|err| AppError::internal(err.to_string()))?;
+        if size == 0 {
+            let _ = tokio::fs::remove_file(&path).await;
+            continue;
+        }
         imports::add_file(&state.db, job.id, &path.to_string_lossy(), &original, size).await?;
         filenames.push(original);
     }
@@ -233,6 +246,14 @@ pub async fn delete_imported_history(
     let mut tx = state.db.begin().await?;
     let deleted = listening_events::delete_imported_history(&mut tx, user.id).await?;
     tx.commit().await?;
+    if deleted > 0 {
+        response_cache::invalidate_namespace(
+            &state.db,
+            response_cache::STATS_OVERVIEW_NAMESPACE,
+            user.id,
+        )
+        .await?;
+    }
     tracing::info!(user_id = %user.id, deleted, "deleted imported listening history");
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
@@ -256,7 +277,7 @@ pub async fn delete_import(
             }
         }
         let job_dir = state.config.import_dir.join(id.to_string());
-        if let Err(err) = tokio::fs::remove_dir(&job_dir).await {
+        if let Err(err) = tokio::fs::remove_dir_all(&job_dir).await {
             tracing::debug!(?err, path = %job_dir.display(), "failed to delete import directory");
         }
         Ok(axum::http::StatusCode::NO_CONTENT)
@@ -280,8 +301,9 @@ fn import_name(filenames: &[String]) -> String {
     }
 }
 
-fn sanitize_filename(name: &str) -> String {
-    name.chars()
+fn sanitize_filename(name: &str) -> Result<String> {
+    let sanitized = name
+        .chars()
         .map(|ch| {
             if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
                 ch
@@ -293,7 +315,11 @@ fn sanitize_filename(name: &str) -> String {
         .trim_matches('_')
         .chars()
         .take(128)
-        .collect::<String>()
+        .collect::<String>();
+    if sanitized.is_empty() || matches!(sanitized.as_str(), "." | "..") {
+        return Err(AppError::validation("invalid import filename"));
+    }
+    Ok(sanitized)
 }
 
 impl From<ImportJob> for ImportJobResponse {

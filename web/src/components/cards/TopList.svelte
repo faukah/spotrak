@@ -86,7 +86,7 @@
     </div>
     <div class="header-actions">
       <div class="metric-buttons" aria-label="Ranking metric">
-        {#each metrics as metric}
+        {#each metrics as metric (metric.value)}
           <Button variant={activeMetric === metric.value ? 'default' : 'outline'} size="xs" onclick={() => setMetric(metric.value)}>{metric.label}</Button>
         {/each}
       </div>
@@ -106,7 +106,7 @@
       <p class="state">No {kind} yet.</p>
     {:else}
       <ol class="rows">
-        {#each items as item, index}
+        {#each items as item, index (item.id)}
           <li class:leader={index === 0 && !dense}>
             <span class="rank">{String(index + 1).padStart(2, '0')}</span>
             <a class="cover-link" href={coverHref(item, index)} aria-label={item.name}>

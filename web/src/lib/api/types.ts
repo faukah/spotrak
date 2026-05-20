@@ -192,6 +192,8 @@ export interface OverviewStatsResponse {
   best_song?: TopTrack | null;
   hourly_distribution: HourRepartitionPoint[];
   history: HistoryEvent[];
+  hour_format: "12" | "24";
+  timezone: string;
 }
 
 export interface AlbumRef {
@@ -213,12 +215,6 @@ export interface TrackDetail {
   images: unknown;
   album: AlbumRef;
   artists: EntityRef[];
-}
-
-export interface SpotifyCurrentlyPlaying {
-  is_playing: boolean;
-  progress_ms?: number | null;
-  item?: TrackDetail | null;
 }
 
 export interface ArtistDetail {

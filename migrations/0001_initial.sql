@@ -64,10 +64,14 @@ CREATE INDEX idx_oauth_states_expires_at ON oauth_states(expires_at);
 CREATE TABLE public_tokens (
   token_hash TEXT PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  rotated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  revoked_at TIMESTAMPTZ
 );
 
 CREATE INDEX idx_public_tokens_user_id ON public_tokens(user_id);
+CREATE INDEX idx_public_tokens_expires_at ON public_tokens(expires_at);
 
 CREATE TABLE artists (
   id TEXT PRIMARY KEY,
@@ -149,6 +153,8 @@ CREATE TABLE listening_events (
   primary_artist_id TEXT NOT NULL REFERENCES artists(id) ON DELETE RESTRICT,
   duration_ms INTEGER NOT NULL,
   played_at TIMESTAMPTZ NOT NULL,
+  played_at_30s_bucket TIMESTAMPTZ
+    GENERATED ALWAYS AS (date_bin('30 seconds'::interval, played_at, '1970-01-01 00:00:00+00'::timestamptz)) STORED,
   blacklisted_by TEXT CHECK (blacklisted_by IS NULL OR blacklisted_by = 'artist'),
   source TEXT NOT NULL DEFAULT 'poller'
     CHECK (source IN ('poller', 'privacy-import', 'full-privacy-import', 'seed')),
@@ -162,6 +168,9 @@ CREATE INDEX idx_events_user_time
 CREATE INDEX idx_events_user_track_time
   ON listening_events(user_id, track_id, played_at DESC);
 
+CREATE UNIQUE INDEX idx_events_user_track_30s_bucket_unique
+  ON listening_events(user_id, track_id, played_at_30s_bucket);
+
 CREATE INDEX idx_events_user_artist_time
   ON listening_events(user_id, primary_artist_id, played_at DESC);
 
@@ -170,6 +179,11 @@ CREATE INDEX idx_events_user_album_time
 
 CREATE INDEX idx_events_user_unblacklisted_time
   ON listening_events(user_id, played_at DESC)
+  WHERE blacklisted_by IS NULL;
+
+CREATE INDEX idx_events_user_unblacklisted_covering
+  ON listening_events(user_id, played_at DESC)
+  INCLUDE (track_id, album_id, primary_artist_id, duration_ms, id)
   WHERE blacklisted_by IS NULL;
 
 CREATE TABLE user_blacklisted_artists (

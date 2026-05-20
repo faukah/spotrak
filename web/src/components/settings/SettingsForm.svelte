@@ -17,6 +17,7 @@
   let error: string | null = null;
   let settingsSaved = false;
   let linkCopied = false;
+  let publicSharingEnabled = false;
   let publicToken: string | null = null;
   let sharingBusy = false;
 
@@ -39,6 +40,7 @@
       hourFormat = me.settings.hour_format ?? '24';
       darkMode = me.settings.dark_mode;
       applyThemePreference(darkMode);
+      publicSharingEnabled = me.public_sharing.enabled;
       publicToken = me.public_sharing.token ?? null;
     } catch (err) {
       error = err instanceof Error ? err.message : 'Unable to load settings';
@@ -52,6 +54,7 @@
     error = null;
     try {
       const response = await apiFetch<{ token: string }>('/users/me/public-token', { method: 'POST' });
+      publicSharingEnabled = true;
       publicToken = response.token;
       linkCopied = false;
     } catch (err) {
@@ -66,6 +69,7 @@
     error = null;
     try {
       await apiFetch<void>('/users/me/public-token', { method: 'DELETE' });
+      publicSharingEnabled = false;
       publicToken = null;
       linkCopied = false;
     } catch (err) {
@@ -152,10 +156,14 @@
           <h3>Public sharing</h3>
           <p>Make Overview, History, Tracks, Artists, and Albums available through a secret public link.</p>
         </div>
-        {#if publicToken}
-          <Input readonly value={publicLink} />
+        {#if publicSharingEnabled}
+          {#if publicToken}
+            <Input readonly value={publicLink} />
+          {:else}
+            <p class="muted">Public sharing is enabled. Rotate the link to reveal a new copyable URL.</p>
+          {/if}
           <div class="actions">
-            <Button type="button" variant="outline" disabled={sharingBusy} onclick={copyPublicLink}>{linkCopied ? 'Copied' : 'Copy link'}</Button>
+            {#if publicToken}<Button type="button" variant="outline" disabled={sharingBusy} onclick={copyPublicLink}>{linkCopied ? 'Copied' : 'Copy link'}</Button>{/if}
             <Button type="button" variant="outline" disabled={sharingBusy} onclick={enableOrRotateSharing}>Rotate link</Button>
             <Button type="button" variant="destructive" disabled={sharingBusy} onclick={revokeSharing}>Revoke</Button>
           </div>

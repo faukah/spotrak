@@ -8,6 +8,7 @@ export const API_ENDPOINT =
   );
 
 const GET_CACHE_TTL_MS = 60_000;
+const GET_CACHE_MAX_ENTRIES = 200;
 const getCache = new Map<string, { expiresAt: number; value: unknown }>();
 const inFlightGets = new Map<string, Promise<unknown>>();
 
@@ -15,6 +16,8 @@ function shouldCacheGet(path: string, init: RequestInit): boolean {
   const method = (init.method ?? "GET").toUpperCase();
   if (method !== "GET" || init.body || init.cache === "no-store") return false;
   return (
+    path === "/auth/me" ||
+    path === "/users/me" ||
     path.startsWith("/stats/") ||
     path.startsWith("/tracks/") ||
     path.startsWith("/artists/") ||
@@ -47,16 +50,21 @@ export async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
+  const method = (init.method ?? "GET").toUpperCase();
   const cacheable = shouldCacheGet(path, init);
   if (cacheable) {
     const cached = getCache.get(path);
-    if (cached && cached.expiresAt > Date.now()) return cached.value as T;
+    if (cached && cached.expiresAt > Date.now()) {
+      getCache.delete(path);
+      getCache.set(path, cached);
+      return cached.value as T;
+    }
 
     const inFlight = inFlightGets.get(path);
     if (inFlight) return inFlight as Promise<T>;
 
     const request = apiFetchInner<T>(path, init).then((value) => {
-      getCache.set(path, { value, expiresAt: Date.now() + GET_CACHE_TTL_MS });
+      setCachedGet(path, value);
       return value;
     });
     inFlightGets.set(path, request);
@@ -68,7 +76,7 @@ export async function apiFetch<T>(
   }
 
   const value = await apiFetchInner<T>(path, init);
-  if ((init.method ?? "GET").toUpperCase() !== "GET") clearApiCache();
+  if (method !== "GET") clearApiCache();
   return value;
 }
 
@@ -81,6 +89,11 @@ async function apiFetchInner<T>(
 
   if (init.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
+  }
+
+  const method = (init.method ?? "GET").toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    headers.set("X-Spotrak-CSRF", "1");
   }
 
   const response = await fetch(`${API_ENDPOINT}/api/v1${path}`, {
@@ -112,6 +125,15 @@ async function apiFetchInner<T>(
   }
 
   return body as T;
+}
+
+function setCachedGet(path: string, value: unknown): void {
+  getCache.set(path, { value, expiresAt: Date.now() + GET_CACHE_TTL_MS });
+  while (getCache.size > GET_CACHE_MAX_ENTRIES) {
+    const oldest = getCache.keys().next().value;
+    if (!oldest) break;
+    getCache.delete(oldest);
+  }
 }
 
 export function loginUrl(): string {

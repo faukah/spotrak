@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { apiFetch } from '../../lib/api/client';
-  import type { HistoryEvent } from '../../lib/api/types';
+  import type { HistoryEvent, MeResponse } from '../../lib/api/types';
   import { formatDateTime, formatDuration } from '../../lib/date/format';
   import { transitionHref, viewTransitionName } from '../../lib/images';
   import CoverArt from '../media/CoverArt.svelte';
@@ -14,6 +14,7 @@
   let events: HistoryEvent[] = [];
   let loading = true;
   let error: string | null = null;
+  let timezone: string | null = null;
 
   onMount(() => {
     void load();
@@ -26,6 +27,10 @@
   async function load() {
     loading = true;
     try {
+      if (!apiPrefix) {
+        const me = await apiFetch<MeResponse>('/users/me');
+        timezone = me.settings.timezone ?? null;
+      }
       events = await apiFetch<HistoryEvent[]>(`${apiPrefix}/history?limit=${limit}`);
     } catch (err) {
       error = err instanceof Error ? err.message : 'Unable to load history';
@@ -51,14 +56,14 @@
       <p class="state">No plays yet. Polling or imports will populate your history.</p>
     {:else}
       <ol class="rows">
-        {#each events as event}
+        {#each events as event (event.id)}
           <li>
             <CoverArt src={event.image_url} name={event.track_name} href={transitionHref(`${pagePrefix}/track/${event.track_id}`, coverTransition(event))} size="sm" transitionName={coverTransition(event)} />
             <div class="track">
               <a class="title-link" href={`${pagePrefix}/track/${event.track_id}`}><strong>{event.track_name}</strong></a>
               <span><a href={`${pagePrefix}/artist/${event.artist_id}`}>{event.artist_name}</a> · <a href={`${pagePrefix}/album/${event.album_id}`}>{event.album_name}</a></span>
             </div>
-            <time datetime={event.played_at}>{formatDateTime(event.played_at)}</time>
+            <time datetime={event.played_at}>{formatDateTime(event.played_at, timezone)}</time>
             <small>{formatDuration(event.duration_ms)}</small>
           </li>
         {/each}

@@ -1,1 +1,0 @@
-// Spotify polling job placeholder.

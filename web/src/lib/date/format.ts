@@ -1,7 +1,12 @@
-import { format } from "date-fns";
-
-export function formatDateTime(value: string): string {
-  return format(new Date(value), "PPpp");
+export function formatDateTime(
+  value: string,
+  timeZone?: string | null,
+): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: timeZone ?? undefined,
+  }).format(new Date(value));
 }
 
 export function formatDuration(ms: number): string {

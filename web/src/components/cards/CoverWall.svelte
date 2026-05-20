@@ -62,7 +62,7 @@
           </a>
         {/if}
         <div class="tiles">
-          {#each rest as track, index}
+          {#each rest as track, index (track.id)}
             <a class="tile" href={coverHref(track, index + 1)} title={`${track.name} · ${track.artist_name}`}>
               <CoverArt src={directImageUrl(track)} name={track.name} size="lg" transitionName={coverTransition(track, index + 1)} />
               <span>{track.name}</span>

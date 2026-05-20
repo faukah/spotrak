@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
     domain::spotify::SpotifyRecentlyPlayedItem,
     error::{AppError, Result},
-    repositories::catalog,
+    repositories::{catalog, response_cache, spotify_queue},
     services::spotify_client,
     state::AppState,
 };
@@ -17,7 +17,6 @@ pub struct IngestionResult {
     pub earliest_played_at: Option<DateTime<Utc>>,
 }
 
-#[allow(dead_code)]
 pub fn artist_ids_from_recently_played(items: &[SpotifyRecentlyPlayedItem]) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut ids = Vec::new();
@@ -119,6 +118,19 @@ pub async fn ingest_recently_played(
     }
 
     tx.commit().await?;
+
+    if inserted > 0 {
+        response_cache::invalidate_namespace(
+            &state.db,
+            response_cache::STATS_OVERVIEW_NAMESPACE,
+            user_id,
+        )
+        .await?;
+        let artist_ids = artist_ids_from_recently_played(items);
+        let missing = catalog::artists_missing_images(&state.db, &artist_ids).await?;
+        spotify_queue::enqueue_artist_hydration(&state.db, user_id, &missing).await?;
+    }
+
     Ok(IngestionResult {
         inserted,
         earliest_played_at,

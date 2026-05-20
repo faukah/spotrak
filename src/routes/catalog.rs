@@ -14,8 +14,7 @@ use crate::{
     },
     dto::requests::SearchQuery,
     error::{AppError, Result},
-    repositories::{catalog, listening_events, search},
-    services::{ingestion, poller},
+    repositories::{catalog, listening_events, response_cache, search, spotify_queue},
     state::AppState,
 };
 
@@ -41,8 +40,10 @@ pub fn router() -> Router<AppState> {
 )]
 pub async fn track(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<TrackDetail>> {
+    let _ = current_user(&headers, &state).await?;
     Ok(Json(catalog::track(&state.db, &id).await?))
 }
 
@@ -61,26 +62,7 @@ pub async fn artist(
     if let Ok(missing) = catalog::artists_missing_images(&state.db, std::slice::from_ref(&id)).await
     {
         if !missing.is_empty() {
-            let state = state.clone();
-            let user = user.clone();
-            tokio::spawn(async move {
-                match poller::valid_access_token(&state, &user).await {
-                    Ok(access_token) => {
-                        if let Err(error) =
-                            ingestion::hydrate_artist_metadata(&state, &access_token, missing).await
-                        {
-                            tracing::trace!(
-                                ?error,
-                                "background artist metadata hydration unavailable"
-                            );
-                        }
-                    }
-                    Err(error) => tracing::trace!(
-                        ?error,
-                        "background artist metadata hydration skipped because user token is unavailable"
-                    ),
-                }
-            });
+            spotify_queue::enqueue_artist_hydration(&state.db, user.id, &missing).await?;
         }
     }
     Ok(Json(detail))
@@ -98,6 +80,12 @@ pub async fn blacklist_artist(
 ) -> Result<axum::http::StatusCode> {
     let user = current_user(&headers, &state).await?;
     catalog::blacklist_artist(&state.db, user.id, &id).await?;
+    response_cache::invalidate_namespace(
+        &state.db,
+        response_cache::STATS_OVERVIEW_NAMESPACE,
+        user.id,
+    )
+    .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -113,6 +101,12 @@ pub async fn unblacklist_artist(
 ) -> Result<axum::http::StatusCode> {
     let user = current_user(&headers, &state).await?;
     catalog::unblacklist_artist(&state.db, user.id, &id).await?;
+    response_cache::invalidate_namespace(
+        &state.db,
+        response_cache::STATS_OVERVIEW_NAMESPACE,
+        user.id,
+    )
+    .await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -123,8 +117,10 @@ pub async fn unblacklist_artist(
 )]
 pub async fn album(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<AlbumDetail>> {
+    let _ = current_user(&headers, &state).await?;
     Ok(Json(catalog::album(&state.db, &id).await?))
 }
 
@@ -136,8 +132,10 @@ pub async fn album(
 )]
 pub async fn search_catalog(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<SearchResults>> {
+    let _ = current_user(&headers, &state).await?;
     if query.q.trim().is_empty() {
         return Err(AppError::validation("q must not be empty"));
     }

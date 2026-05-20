@@ -26,10 +26,11 @@ pub enum AppError {
     Conflict(String),
     #[error("spotify error: {0}")]
     Spotify(String),
-    #[error("spotify API error: status={status}, url={url}, body={body}")]
+    #[error("spotify API error: status={status}, url={url}, message={message}, body={body}")]
     SpotifyApi {
         status: reqwest::StatusCode,
         url: String,
+        message: String,
         body: String,
     },
     #[error("database error")]
@@ -108,8 +109,8 @@ impl AppError {
             AppError::Validation { message, .. } => message.clone(),
             AppError::Conflict(message) => message.clone(),
             AppError::Spotify(message) => message.clone(),
-            AppError::SpotifyApi { status, url, body } => {
-                format!("Spotify request failed: status={status}, url={url}, body={body}")
+            AppError::SpotifyApi { message, .. } => {
+                format!("Spotify request failed: {message}")
             }
             AppError::NotImplemented(feature) => format!("{feature} is not implemented yet"),
         }
@@ -119,7 +120,13 @@ impl AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = self.status();
-        if matches!(self, AppError::Database(_) | AppError::Internal(_)) {
+        if matches!(
+            self,
+            AppError::Database(_)
+                | AppError::Internal(_)
+                | AppError::Spotify(_)
+                | AppError::SpotifyApi { .. }
+        ) {
             tracing::error!(error = ?self, "request failed");
         }
         let details = match &self {

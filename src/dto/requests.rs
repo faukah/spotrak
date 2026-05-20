@@ -31,21 +31,3 @@ impl PaginationQuery {
 pub struct SearchQuery {
     pub q: String,
 }
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct SpotifyPlayRequest {
-    pub uri: Option<String>,
-    pub track_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct SpotifyCreatePlaylistRequest {
-    pub name: String,
-    #[serde(default)]
-    pub public: bool,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct SpotifyAddTracksRequest {
-    pub uris: Vec<String>,
-}

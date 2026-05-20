@@ -17,9 +17,17 @@ export async function serverApiFetch<T>(
     const response = await fetch(`${SERVER_API_ENDPOINT}/api/v1${path}`, {
       headers,
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      if (response.status >= 500) {
+        throw new Error(`Backend unavailable (${response.status})`);
+      }
+      return null;
+    }
     return (await response.json()) as T;
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error && error.message.startsWith("Backend unavailable")
+    ) throw error;
     return null;
   }
 }

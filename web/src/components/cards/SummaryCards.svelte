@@ -1,21 +1,18 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
-  import * as echarts from 'echarts/core';
-  import { LineChart } from 'echarts/charts';
-  import { GridComponent, TooltipComponent } from 'echarts/components';
-  import { CanvasRenderer } from 'echarts/renderers';
+  import { onMount } from 'svelte';
+  import { AreaChart } from 'layerchart';
   import { Activity, Clock3, Disc3, Library, Mic2 } from '@lucide/svelte';
   import { apiFetch } from '../../lib/api/client';
   import type { DiversityTimelinePoint, SummaryStats, TimelinePoint } from '../../lib/api/types';
   import { formatDuration } from '../../lib/date/format';
-  import { chartColors, chartTooltip } from '../../lib/charts/theme';
-  import { formatChartValue } from '../../lib/stats/format';
+  import { formatCountValue, formatDurationValue, formatLongDate, formatShortDate, tickStep } from '../../lib/charts/theme';
+  import { cn } from '../../lib/utils';
   import * as Card from '../ui/card';
-
-  echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
+  import * as Chart from '../ui/chart';
 
   type SummaryMode = 'plays' | 'time' | 'tracks' | 'artists' | 'albums';
   type ChartPoint = { label: string; value: number };
+  type TooltipItem = { color?: string };
 
   export let apiPrefix = '';
 
@@ -26,9 +23,6 @@
   let chartError: string | null = null;
   let active: SummaryMode = 'plays';
   let points: ChartPoint[] = [];
-  let chartElement: HTMLDivElement | null = null;
-  let chart: echarts.ECharts | null = null;
-  let resizeObserver: ResizeObserver | null = null;
   let requestId = 0;
 
   $: cards = stats
@@ -42,17 +36,25 @@
     : [];
 
   $: activeLabel = cards.find((card) => card.key === active)?.label ?? 'plays';
+  $: timelineConfig = {
+    value: {
+      label: activeLabel,
+      color: active === 'time' ? 'var(--chart-2)' : 'var(--chart-1)',
+    },
+  } satisfies Chart.ChartConfig;
+  $: timelineSeries = [
+    {
+      key: 'value',
+      label: activeLabel,
+      value: 'value',
+      color: timelineConfig.value.color,
+    },
+  ];
+  $: chartClass = cn('chart', (chartLoading || chartError || points.length === 0) && 'dimmed');
+  $: xTickStep = tickStep(points.length, 6);
 
   onMount(() => {
-    const handleThemeChange = () => renderChart();
     void load();
-    resizeObserver = new ResizeObserver(() => chart?.resize());
-    window.addEventListener('spotrak:theme-change', handleThemeChange);
-    return () => {
-      window.removeEventListener('spotrak:theme-change', handleThemeChange);
-      resizeObserver?.disconnect();
-      chart?.dispose();
-    };
   });
 
   async function load() {
@@ -67,7 +69,6 @@
     }
 
     if (stats) {
-      await tick();
       await selectMode(active);
     }
   }
@@ -85,14 +86,6 @@
     } finally {
       if (id === requestId) chartLoading = false;
     }
-
-    await tick();
-    if (id !== requestId || chartError || points.length === 0 || !chartElement) return;
-    if (!chart) {
-      chart = echarts.init(chartElement);
-      resizeObserver?.observe(chartElement);
-    }
-    renderChart();
   }
 
   async function fetchPoints(mode: SummaryMode): Promise<ChartPoint[]> {
@@ -111,51 +104,18 @@
     }));
   }
 
-  function formatValue(value: number): string {
-    if (active === 'time') return formatChartValue(value, 'duration');
-    return formatChartValue(value, 'count');
+  function formatValue(value: unknown): string {
+    if (active === 'time') return formatDurationValue(value);
+    return formatCountValue(value);
   }
 
-  function renderChart() {
-    if (!chart) return;
-    const colors = chartColors();
+  function formatTooltipValue(value: unknown): string {
+    const formatted = formatValue(value);
+    return active === 'time' ? formatted : `${formatted} ${activeLabel}`;
+  }
 
-    chart.setOption({
-      backgroundColor: 'transparent',
-      animationDuration: 500,
-      tooltip: {
-        trigger: 'axis',
-        ...chartTooltip(colors, (value: number) => formatValue(value)),
-      },
-      grid: { left: 46, right: 16, top: 18, bottom: 42 },
-      xAxis: {
-        type: 'category',
-        data: points.map((point) => point.label),
-        boundaryGap: false,
-        axisLabel: { color: colors.muted, hideOverlap: true, fontSize: 11 },
-        axisLine: { lineStyle: { color: colors.border } },
-        axisTick: { show: false },
-      },
-      yAxis: {
-        type: 'value',
-        splitLine: { lineStyle: { color: colors.border, opacity: 0.38 } },
-        axisLabel: { color: colors.muted, formatter: (value: number) => formatValue(value) },
-      },
-      series: [
-        {
-          name: activeLabel,
-          type: 'line',
-          data: points.map((point) => point.value),
-          smooth: true,
-          symbol: 'circle',
-          symbolSize: 4,
-          showSymbol: points.length <= 80,
-          lineStyle: { color: active === 'time' ? colors.accent : colors.primary, width: 2.4 },
-          itemStyle: { color: active === 'time' ? colors.accent : colors.primary },
-          areaStyle: { color: active === 'time' ? 'rgba(209,167,95,0.16)' : 'rgba(158,185,142,0.16)' },
-        },
-      ],
-    });
+  function tooltipColor(item: TooltipItem): string {
+    return item.color ?? 'currentColor';
   }
 </script>
 
@@ -187,13 +147,39 @@
       </Card.Header>
       <Card.Content>
         <div class="chart-frame">
-          <div
-            bind:this={chartElement}
-            class:dimmed={chartLoading || chartError || points.length === 0}
-            class="chart"
+          <Chart.Container
+            config={timelineConfig}
+            class={chartClass}
             role="img"
             aria-label={`${activeLabel} over time area chart`}
-          ></div>
+          >
+            <AreaChart
+              data={points}
+              x="label"
+              y="value"
+              yBaseline={0}
+              series={timelineSeries}
+              padding={{ left: 46, right: 16, top: 18, bottom: 42 }}
+              props={{
+                xAxis: { format: formatShortDate, ticks: xTickStep },
+                yAxis: { format: formatValue, tickSpacing: 72 },
+                area: { fillOpacity: 0.18 },
+                line: { strokeWidth: 2.4 },
+              }}
+            >
+              {#snippet tooltip()}
+                <Chart.Tooltip labelFormatter={formatLongDate}>
+                  {#snippet formatter({ value, name, item })}
+                    <div class="tooltip-row">
+                      <span class="tooltip-swatch" style:background={tooltipColor(item)}></span>
+                      <span class="tooltip-name">{name}</span>
+                      <span class="tooltip-value">{formatTooltipValue(value)}</span>
+                    </div>
+                  {/snippet}
+                </Chart.Tooltip>
+              {/snippet}
+            </AreaChart>
+          </Chart.Container>
           {#if chartLoading}
             <div class="chart-overlay"><span>Loading timeline…</span></div>
           {:else if chartError}
@@ -276,14 +262,14 @@
     min-height: clamp(18rem, 32vw, 27rem);
   }
 
-  .chart {
+  :global(.chart) {
     width: 100%;
     min-height: clamp(18rem, 32vw, 27rem);
     opacity: 1;
     transition: opacity 140ms ease;
   }
 
-  .chart.dimmed {
+  :global(.chart.dimmed) {
     opacity: 0.22;
   }
 
@@ -302,6 +288,34 @@
     color: var(--color-muted);
     font-size: 0.86rem;
     font-weight: 700;
+  }
+
+  .tooltip-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 0.45rem;
+    align-items: center;
+    min-width: 11rem;
+  }
+
+  .tooltip-swatch {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 999px;
+  }
+
+  .tooltip-name {
+    overflow: hidden;
+    color: var(--color-text);
+    font-weight: 700;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tooltip-value {
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
   .error,

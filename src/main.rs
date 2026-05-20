@@ -4,12 +4,10 @@ mod config;
 mod domain;
 mod dto;
 mod error;
-mod jobs;
 mod repositories;
 mod routes;
 mod services;
 mod state;
-mod test_support;
 
 use std::{net::SocketAddr, path::PathBuf};
 
@@ -22,11 +20,7 @@ use utoipa::OpenApi;
 use crate::{config::Config, error::Result, state::AppState};
 
 #[derive(Debug, Parser)]
-#[command(
-    name = "spotrak",
-    version,
-    about = "Greenfield Spotrak backend"
-)]
+#[command(name = "spotrak", version, about = "Greenfield Spotrak backend")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -116,6 +110,7 @@ async fn serve(config: Config) -> Result<()> {
     spawn_cleanup_jobs(state.clone());
     spawn_spotify_poller(state.clone());
     spawn_import_worker(state.clone());
+    spawn_artist_hydration_worker(state.clone());
 
     let router = app::build(state);
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -158,13 +153,42 @@ fn spawn_import_worker(state: AppState) {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
         loop {
             interval.tick().await;
-            match crate::services::imports::process_queued_once(&state).await {
-                Ok(processed) if processed > 0 => {
+            let worker_state = state.clone();
+            match tokio::spawn(async move {
+                crate::services::imports::process_queued_once(&worker_state).await
+            })
+            .await
+            {
+                Ok(Ok(processed)) if processed > 0 => {
                     state.metrics.inc_import_jobs_processed(processed as u64);
                     tracing::debug!(processed, "processed import jobs")
                 }
-                Ok(_) => {}
-                Err(err) => tracing::warn!(?err, "import worker failed"),
+                Ok(Ok(_)) => {}
+                Ok(Err(err)) => tracing::warn!(?err, "import worker failed"),
+                Err(err) => tracing::warn!(?err, "import worker panicked"),
+            }
+        }
+    });
+}
+
+fn spawn_artist_hydration_worker(state: AppState) {
+    tracing::info!("starting Spotify artist metadata hydration worker");
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+        loop {
+            interval.tick().await;
+            let worker_state = state.clone();
+            match tokio::spawn(async move {
+                crate::services::artist_hydration::process_queued_once(&worker_state).await
+            })
+            .await
+            {
+                Ok(Ok(hydrated)) if hydrated > 0 => {
+                    tracing::debug!(hydrated, "hydrated Spotify artist metadata")
+                }
+                Ok(Ok(_)) => {}
+                Ok(Err(err)) => tracing::warn!(?err, "artist metadata hydration worker failed"),
+                Err(err) => tracing::warn!(?err, "artist metadata hydration worker panicked"),
             }
         }
     });
@@ -175,9 +199,15 @@ fn spawn_spotify_poller(state: AppState) {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));
         loop {
             interval.tick().await;
-            match crate::services::poller::poll_once(&state).await {
-                Ok(summary) => tracing::debug!(?summary, "Spotify poll completed"),
-                Err(err) => tracing::warn!(?err, "Spotify poll failed"),
+            let worker_state = state.clone();
+            match tokio::spawn(
+                async move { crate::services::poller::poll_once(&worker_state).await },
+            )
+            .await
+            {
+                Ok(Ok(summary)) => tracing::debug!(?summary, "Spotify poll completed"),
+                Ok(Err(err)) => tracing::warn!(?err, "Spotify poll failed"),
+                Err(err) => tracing::warn!(?err, "Spotify poller panicked"),
             }
         }
     });
@@ -193,6 +223,10 @@ fn spawn_cleanup_jobs(state: AppState) {
             }
             if let Err(err) = crate::repositories::oauth_states::cleanup_expired(&state.db).await {
                 tracing::warn!(?err, "failed to clean expired oauth states");
+            }
+            if let Err(err) = crate::repositories::response_cache::cleanup_expired(&state.db).await
+            {
+                tracing::warn!(?err, "failed to clean expired response cache");
             }
         }
     });

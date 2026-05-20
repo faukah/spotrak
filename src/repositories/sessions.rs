@@ -59,10 +59,17 @@ pub async fn user_for_token(pool: &PgPool, raw_token: &str) -> Result<Option<Use
     .await?;
 
     if user.is_some() {
-        sqlx::query("UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1")
-            .bind(token_hash)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            r#"
+            UPDATE sessions
+            SET last_seen_at = now()
+            WHERE token_hash = $1
+              AND (last_seen_at IS NULL OR last_seen_at < now() - interval '1 minute')
+            "#,
+        )
+        .bind(token_hash)
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
     Ok(user)

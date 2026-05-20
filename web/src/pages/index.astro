@@ -1,8 +1,12 @@
 ---
 import AppLayout from '../components/layout/AppLayout.astro';
 import OverviewDashboard from '../components/overview/OverviewDashboard.svelte';
+import { serverApiFetch } from '../lib/api/server';
+import type { OverviewStatsResponse } from '../lib/api/types';
+
+const initialOverview = await serverApiFetch<OverviewStatsResponse>(Astro.request, '/stats/overview?range=today');
 ---
 
 <AppLayout title="Overview · Spotrak">
-  <OverviewDashboard client:load />
+  <OverviewDashboard initialOverview={initialOverview} client:load />
 </AppLayout>

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { apiFetch } from '../../lib/api/client';
-  import type { AlbumDetail, ArtistDetail, EntityStats, TrackDetail } from '../../lib/api/types';
+  import type { AlbumDetail, ArtistDetail, EntityStats, MeResponse, TrackDetail } from '../../lib/api/types';
   import { formatDateTime, formatDuration } from '../../lib/date/format';
-  import { spotifyImageUrl, viewTransitionName } from '../../lib/images';
+  import { spotifyImageUrl } from '../../lib/images';
   import CoverArt from '../media/CoverArt.svelte';
   import * as Card from '../ui/card';
 
@@ -23,13 +23,25 @@
   let statsLoading = true;
   let error: string | null = null;
   let refreshTimer: number | undefined;
+  let timezone: string | null = null;
+  let transitionCleanupTimer: number | undefined;
+  let coverTransitionName = transitionName;
 
   $: plural = `${kind}s`;
   $: image = detail ? imageFor(detail) : null;
-  $: activeTransitionName = transitionName ?? (detail ? viewTransitionName(detail.id) : undefined);
+  $: spotifyUrl = detail ? spotifyWebUrl(detail) : null;
 
   onMount(() => {
+    const disableCoverTransition = () => {
+      coverTransitionName = undefined;
+    };
+
     cleanTransitionUrl();
+    window.addEventListener('popstate', disableCoverTransition);
+    if (coverTransitionName) {
+      transitionCleanupTimer = window.setTimeout(disableCoverTransition, 600);
+    }
+    if (!apiPrefix) void loadTimezone();
     if (detail) {
       maybeRefreshHydratedArtist(detail);
     } else {
@@ -37,7 +49,9 @@
     }
     void loadStats();
     return () => {
+      window.removeEventListener('popstate', disableCoverTransition);
       if (refreshTimer) window.clearTimeout(refreshTimer);
+      if (transitionCleanupTimer) window.clearTimeout(transitionCleanupTimer);
     };
   });
 
@@ -47,6 +61,15 @@
     if (!url.searchParams.has('vt')) return;
     url.searchParams.delete('vt');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }
+
+  async function loadTimezone() {
+    try {
+      const me = await apiFetch<MeResponse>('/users/me');
+      timezone = me.settings.timezone ?? null;
+    } catch {
+      timezone = null;
+    }
   }
 
   async function loadDetail(scheduleHydrationRefresh = false) {
@@ -87,6 +110,14 @@
     if ('album' in value) return spotifyImageUrl(value.images) ?? spotifyImageUrl(value.album.images);
     return spotifyImageUrl(value.images);
   }
+
+  function spotifyWebUrl(value: Detail): string | null {
+    const uri = 'uri' in value ? value.uri : null;
+    if (!uri) return null;
+    const [, type, spotifyId] = uri.split(':');
+    if (!spotifyId || !['track', 'album', 'artist'].includes(type)) return null;
+    return `https://open.spotify.com/${type}/${spotifyId}`;
+  }
 </script>
 
 {#if detailLoading}
@@ -95,13 +126,13 @@
   <Card.Root><Card.Content><p class="error">{error}</p></Card.Content></Card.Root>
 {:else if detail}
   <section class="detail-header">
-    <CoverArt src={image} name={detail.name} size="xl" transitionName={activeTransitionName} />
+    <CoverArt src={image} name={detail.name} size="xl" transitionName={coverTransitionName} />
     <div class="detail-copy">
       <p class="kicker">{kind}</p>
       <h1>{detail.name}</h1>
       {#if subtitle(detail)}<p class="muted subtitle">{subtitle(detail)}</p>{/if}
-      {#if 'href' in detail && detail.href}
-        <a class="spotify-link" href={detail.href} target="_blank" rel="noreferrer">Open in Spotify</a>
+      {#if spotifyUrl}
+        <a class="spotify-link" href={spotifyUrl} target="_blank" rel="noreferrer">Open in Spotify</a>
       {/if}
     </div>
   </section>
@@ -110,8 +141,8 @@
     <div class="stat-grid">
       <Card.Root size="sm"><Card.Header><Card.Description>Listens</Card.Description><Card.Title>{stats.total_listens.toLocaleString()}</Card.Title></Card.Header></Card.Root>
       <Card.Root size="sm"><Card.Header><Card.Description>Duration</Card.Description><Card.Title>{formatDuration(stats.total_duration_ms)}</Card.Title></Card.Header></Card.Root>
-      <Card.Root size="sm"><Card.Header><Card.Description>First played</Card.Description><Card.Title>{stats.first_played_at ? formatDateTime(stats.first_played_at) : 'Never'}</Card.Title></Card.Header></Card.Root>
-      <Card.Root size="sm"><Card.Header><Card.Description>Last played</Card.Description><Card.Title>{stats.last_played_at ? formatDateTime(stats.last_played_at) : 'Never'}</Card.Title></Card.Header></Card.Root>
+      <Card.Root size="sm"><Card.Header><Card.Description>First played</Card.Description><Card.Title>{stats.first_played_at ? formatDateTime(stats.first_played_at, timezone) : 'Never'}</Card.Title></Card.Header></Card.Root>
+      <Card.Root size="sm"><Card.Header><Card.Description>Last played</Card.Description><Card.Title>{stats.last_played_at ? formatDateTime(stats.last_played_at, timezone) : 'Never'}</Card.Title></Card.Header></Card.Root>
     </div>
   {:else if statsLoading}
     <div class="stat-grid">

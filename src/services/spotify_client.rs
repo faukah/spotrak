@@ -3,15 +3,14 @@ use std::time::Instant;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use reqwest::{StatusCode, header};
 use secrecy::ExposeSecret;
-use serde::{Serialize, de::DeserializeOwned};
-use serde_json::{Value, json};
+use serde::de::DeserializeOwned;
+use serde_json::Value;
 use url::Url;
 
 use crate::{
-    config::Config,
+    config::{Config, MIN_SPOTIFY_API_DELAY},
     domain::spotify::{
-        SpotifyAlbum, SpotifyArtist, SpotifyCurrentlyPlaying, SpotifyPlaylistSummary,
-        SpotifyPlaylistsResponse, SpotifyProfile, SpotifyRecentlyPlayedItem,
+        SpotifyAlbum, SpotifyArtist, SpotifyProfile, SpotifyRecentlyPlayedItem,
         SpotifyRecentlyPlayedResponse, SpotifySearchTracks, SpotifyTokenResponse, SpotifyTrack,
         StoredSpotifyTokens,
     },
@@ -22,7 +21,7 @@ use crate::{
 const SPOTIFY_ACCOUNTS: &str = "https://accounts.spotify.com";
 const SPOTIFY_API: &str = "https://api.spotify.com";
 const MAX_RETRY_AFTER_SECONDS: u64 = 60;
-const MIN_SPOTIFY_REQUEST_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+const MAX_SPOTIFY_RETRIES: u32 = 3;
 
 pub fn authorize_url(config: &Config, state: &str) -> Result<Url> {
     let mut url = Url::parse(&format!("{SPOTIFY_ACCOUNTS}/authorize"))
@@ -31,7 +30,10 @@ pub fn authorize_url(config: &Config, state: &str) -> Result<Url> {
         .append_pair("response_type", "code")
         .append_pair("client_id", &config.spotify_public)
         .append_pair("redirect_uri", &config.oauth_callback_url())
-        .append_pair("scope", "user-read-email user-read-private user-read-recently-played user-read-currently-playing user-read-playback-state playlist-read-private playlist-modify-public playlist-modify-private user-modify-playback-state")
+        .append_pair(
+            "scope",
+            "user-read-private user-read-email user-read-recently-played",
+        )
         .append_pair("state", state);
     Ok(url)
 }
@@ -79,18 +81,6 @@ pub async fn me(state: &AppState, access_token: &str) -> Result<SpotifyProfile> 
     spotify_get_json(state, &format!("{SPOTIFY_API}/v1/me"), access_token).await
 }
 
-pub async fn currently_playing(
-    state: &AppState,
-    access_token: &str,
-) -> Result<Option<SpotifyCurrentlyPlaying>> {
-    spotify_get_json(
-        state,
-        &format!("{SPOTIFY_API}/v1/me/player/currently-playing"),
-        access_token,
-    )
-    .await
-}
-
 pub async fn recently_played_after(
     state: &AppState,
     access_token: &str,
@@ -114,12 +104,28 @@ pub async fn recently_played_after(
             break;
         }
 
-        let page: SpotifyRecentlyPlayedResponse =
-            spotify_get_json(state, &page_url, access_token).await?;
+        let page =
+            match spotify_get_json::<SpotifyRecentlyPlayedResponse>(state, &page_url, access_token)
+                .await
+            {
+                Ok(page) => page,
+                Err(error) if !items.is_empty() => {
+                    tracing::warn!(
+                        ?error,
+                        "returning partial Spotify recently-played page results"
+                    );
+                    break;
+                }
+                Err(error) => return Err(error),
+            };
         if page.items.is_empty() {
             break;
         }
-        next = page.next.clone();
+        next = page
+            .next
+            .as_deref()
+            .map(validated_spotify_api_url)
+            .transpose()?;
         items.extend(page.items);
     }
 
@@ -167,69 +173,13 @@ pub async fn search_track(
     Ok(response.tracks.items.into_iter().next())
 }
 
-pub async fn play_track(state: &AppState, access_token: &str, track_uri: &str) -> Result<()> {
-    spotify_put_json_no_content(
-        state,
-        &format!("{SPOTIFY_API}/v1/me/player/play"),
-        access_token,
-        &json!({ "uris": [track_uri] }),
-    )
-    .await
-}
-
-pub async fn get_playlists(
-    state: &AppState,
-    access_token: &str,
-) -> Result<Vec<SpotifyPlaylistSummary>> {
-    let mut url = Url::parse(&format!("{SPOTIFY_API}/v1/me/playlists"))
-        .map_err(|err| AppError::internal(err.to_string()))?;
-    url.query_pairs_mut().append_pair("limit", "50");
-    let mut playlists = Vec::new();
-    let mut next = Some(url.to_string());
-    let mut pages = 0;
-    while let Some(page_url) = next {
-        pages += 1;
-        if pages > 10 {
-            break;
-        }
-        let page: SpotifyPlaylistsResponse =
-            spotify_get_json(state, &page_url, access_token).await?;
-        next = page.next.clone();
-        playlists.extend(page.items);
+fn validated_spotify_api_url(value: &str) -> Result<String> {
+    let url = Url::parse(value)
+        .map_err(|err| AppError::spotify(format!("invalid Spotify pagination URL: {err}")))?;
+    if url.scheme() != "https" || url.host_str() != Some("api.spotify.com") {
+        return Err(AppError::spotify("invalid Spotify pagination URL origin"));
     }
-    Ok(playlists)
-}
-
-pub async fn create_playlist(
-    state: &AppState,
-    access_token: &str,
-    user_id: &str,
-    name: &str,
-    public: bool,
-) -> Result<SpotifyPlaylistSummary> {
-    spotify_post_json(
-        state,
-        &format!("{SPOTIFY_API}/v1/users/{user_id}/playlists"),
-        access_token,
-        &json!({ "name": name, "public": public }),
-    )
-    .await
-}
-
-pub async fn add_tracks_to_playlist(
-    state: &AppState,
-    access_token: &str,
-    playlist_id: &str,
-    uris: &[String],
-) -> Result<()> {
-    spotify_post_json::<Value, _>(
-        state,
-        &format!("{SPOTIFY_API}/v1/playlists/{playlist_id}/tracks"),
-        access_token,
-        &json!({ "uris": uris }),
-    )
-    .await
-    .map(|_| ())
+    Ok(url.to_string())
 }
 
 fn append_market(state: &AppState, url: &mut Url) {
@@ -246,31 +196,6 @@ async fn spotify_get_json<T: DeserializeOwned>(
     spotify_send(state, || state.http.get(url).bearer_auth(access_token)).await
 }
 
-async fn spotify_post_json<T: DeserializeOwned, B: Serialize + ?Sized>(
-    state: &AppState,
-    url: &str,
-    access_token: &str,
-    body: &B,
-) -> Result<T> {
-    spotify_send(state, || {
-        state.http.post(url).bearer_auth(access_token).json(body)
-    })
-    .await
-}
-
-async fn spotify_put_json_no_content<B: Serialize + ?Sized>(
-    state: &AppState,
-    url: &str,
-    access_token: &str,
-    body: &B,
-) -> Result<()> {
-    let _: Value = spotify_send_allow_empty(state, || {
-        state.http.put(url).bearer_auth(access_token).json(body)
-    })
-    .await?;
-    Ok(())
-}
-
 async fn spotify_send<T: DeserializeOwned>(
     state: &AppState,
     build: impl Fn() -> reqwest::RequestBuilder,
@@ -282,7 +207,7 @@ async fn spotify_send_allow_empty<T: DeserializeOwned>(
     state: &AppState,
     build: impl Fn() -> reqwest::RequestBuilder,
 ) -> Result<T> {
-    let mut attempts = 0;
+    let mut attempts: u32 = 0;
     loop {
         attempts += 1;
         wait_for_spotify_slot(state).await?;
@@ -293,31 +218,31 @@ async fn spotify_send_allow_empty<T: DeserializeOwned>(
         let status = response.status();
         let url = response.url().to_string();
         tracing::debug!(%status, %url, elapsed_ms, attempt = attempts, "Spotify request completed");
-        if status == StatusCode::TOO_MANY_REQUESTS && attempts <= 3 {
-            let retry_after = response
-                .headers()
-                .get(header::RETRY_AFTER)
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(1);
-            if retry_after > MAX_RETRY_AFTER_SECONDS {
+        if status == StatusCode::TOO_MANY_REQUESTS && attempts <= MAX_SPOTIFY_RETRIES {
+            let retry_after = retry_after_seconds(response.headers());
+            let sleep_seconds = retry_after.unwrap_or_else(|| spotify_backoff_seconds(attempts));
+            if sleep_seconds > MAX_RETRY_AFTER_SECONDS {
                 state.metrics.inc_spotify_failures();
                 tracing::warn!(
                     %url,
-                    retry_after_seconds = retry_after,
+                    retry_after_seconds = retry_after.unwrap_or(0),
+                    retry_after_present = retry_after.is_some(),
+                    sleep_seconds,
                     max_retry_after_seconds = MAX_RETRY_AFTER_SECONDS,
                     attempt = attempts,
                     "Spotify rate limit Retry-After is too long; not sleeping the worker"
                 );
-                return Err(spotify_rate_limit_error(response, retry_after).await);
+                return Err(spotify_rate_limit_error(response, retry_after, sleep_seconds).await);
             }
             tracing::warn!(
                 %url,
-                retry_after_seconds = retry_after,
+                retry_after_seconds = retry_after.unwrap_or(0),
+                retry_after_present = retry_after.is_some(),
+                sleep_seconds,
                 attempt = attempts,
-                "Spotify rate limit hit; respecting Retry-After before retrying"
+                "Spotify rate limit hit; respecting Retry-After or exponential backoff before retrying"
             );
-            tokio::time::sleep(std::time::Duration::from_secs(retry_after)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(sleep_seconds)).await;
             continue;
         }
 
@@ -336,25 +261,26 @@ async fn spotify_send_allow_empty<T: DeserializeOwned>(
 }
 
 async fn wait_for_spotify_slot(state: &AppState) -> Result<()> {
-    let mut last_request_at = state.spotify_limiter.lock().await;
-    let delay = state
-        .config
-        .spotify_api_delay
-        .max(MIN_SPOTIFY_REQUEST_DELAY);
+    let delay = state.config.spotify_api_delay.max(MIN_SPOTIFY_API_DELAY);
 
-    // Process-local guard first. This protects all tasks within this backend process.
-    let now = Instant::now();
-    let next_allowed_at = *last_request_at + delay;
-    if next_allowed_at > now {
-        let wait = next_allowed_at - now;
-        tracing::debug!(
-            wait_ms = wait.as_millis(),
-            "waiting for local Spotify rate limiter slot"
-        );
-        tokio::time::sleep(wait).await;
+    // Process-local guard first. Keep the mutex scoped only around local spacing;
+    // cross-process DB coordination below uses the advisory lock.
+    {
+        let mut last_request_at = state.spotify_limiter.lock().await;
+        let now = Instant::now();
+        let next_allowed_at = *last_request_at + delay;
+        if next_allowed_at > now {
+            let wait = next_allowed_at - now;
+            tracing::debug!(
+                wait_ms = wait.as_millis(),
+                "waiting for local Spotify rate limiter slot"
+            );
+            tokio::time::sleep(wait).await;
+        }
+        *last_request_at = Instant::now();
     }
 
-    // Database guard second. This makes the 2s spacing process-wide even if two backend
+    // Database guard second. This makes the spacing process-wide even if two backend
     // instances or a restarted worker overlap. The transaction intentionally holds the
     // advisory lock while sleeping so no other process can reserve the same slot.
     let mut tx = state.db.begin().await?;
@@ -400,6 +326,7 @@ async fn wait_for_spotify_slot(state: &AppState) -> Result<()> {
     .await?;
     tx.commit().await?;
 
+    let mut last_request_at = state.spotify_limiter.lock().await;
     *last_request_at = Instant::now();
     Ok(())
 }
@@ -418,18 +345,47 @@ async fn parse_token_response(response: reqwest::Response) -> Result<StoredSpoti
     })
 }
 
-async fn spotify_rate_limit_error(response: reqwest::Response, retry_after: u64) -> AppError {
+fn retry_after_seconds(headers: &header::HeaderMap) -> Option<u64> {
+    let value = headers.get(header::RETRY_AFTER)?.to_str().ok()?;
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(seconds);
+    }
+
+    DateTime::parse_from_rfc2822(value)
+        .ok()
+        .map(|timestamp| timestamp.with_timezone(&Utc))
+        .map(|timestamp| {
+            (timestamp - Utc::now())
+                .to_std()
+                .map_or(0, |duration| duration.as_secs())
+        })
+}
+
+fn spotify_backoff_seconds(attempt: u32) -> u64 {
+    2_u64.saturating_pow(attempt.min(5))
+}
+
+async fn spotify_rate_limit_error(
+    response: reqwest::Response,
+    retry_after: Option<u64>,
+    sleep_seconds: u64,
+) -> AppError {
     let status = response.status();
     let url = response.url().to_string();
     let body = response
         .text()
         .await
         .unwrap_or_else(|err| format!("<failed to read response body: {err}>"));
+    let message = spotify_error_message(status, &body, retry_after);
     AppError::SpotifyApi {
         status,
         url,
+        message,
         body: format!(
-            "{body}; retry_after_seconds={retry_after}; max_retry_after_seconds={MAX_RETRY_AFTER_SECONDS}; request was not retried in-process to avoid blocking the worker"
+            "{body}; retry_after_seconds={}; planned_sleep_seconds={sleep_seconds}; max_retry_after_seconds={MAX_RETRY_AFTER_SECONDS}; request was not retried in-process to avoid blocking the worker",
+            retry_after
+                .map(|seconds| seconds.to_string())
+                .unwrap_or_else(|| "<missing>".to_owned())
         ),
     }
 }
@@ -437,9 +393,82 @@ async fn spotify_rate_limit_error(response: reqwest::Response, retry_after: u64)
 async fn spotify_http_error(response: reqwest::Response) -> AppError {
     let status = response.status();
     let url = response.url().to_string();
+    let retry_after = retry_after_seconds(response.headers());
     let body = response
         .text()
         .await
         .unwrap_or_else(|err| format!("<failed to read response body: {err}>"));
-    AppError::SpotifyApi { status, url, body }
+    let message = spotify_error_message(status, &body, retry_after);
+    AppError::SpotifyApi {
+        status,
+        url,
+        message,
+        body,
+    }
+}
+
+fn spotify_error_message(status: StatusCode, body: &str, retry_after: Option<u64>) -> String {
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        return match retry_after {
+            Some(seconds) => format!("rate limited by Spotify; retry after {seconds}s"),
+            None => "rate limited by Spotify; retry later".to_owned(),
+        };
+    }
+
+    let parsed = serde_json::from_str::<Value>(body).ok();
+    let message = parsed
+        .as_ref()
+        .and_then(|value| value.pointer("/error/message").and_then(Value::as_str))
+        .or_else(|| {
+            parsed
+                .as_ref()
+                .and_then(|value| value.get("error_description").and_then(Value::as_str))
+        })
+        .or_else(|| {
+            parsed
+                .as_ref()
+                .and_then(|value| value.get("message").and_then(Value::as_str))
+        })
+        .or_else(|| {
+            parsed.as_ref().and_then(|value| {
+                value
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .filter(|message| !message.trim().is_empty())
+            })
+        })
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| status_reason(status).to_owned());
+
+    sanitize_spotify_error_message(&message)
+}
+
+fn status_reason(status: StatusCode) -> &'static str {
+    match status {
+        StatusCode::BAD_REQUEST => "bad request to Spotify",
+        StatusCode::UNAUTHORIZED => "Spotify authorization failed",
+        StatusCode::FORBIDDEN => "Spotify denied this operation",
+        StatusCode::NOT_FOUND => "Spotify resource not found",
+        StatusCode::TOO_MANY_REQUESTS => "Spotify rate limit exceeded",
+        StatusCode::INTERNAL_SERVER_ERROR
+        | StatusCode::BAD_GATEWAY
+        | StatusCode::SERVICE_UNAVAILABLE
+        | StatusCode::GATEWAY_TIMEOUT => "Spotify is temporarily unavailable",
+        _ => "unexpected Spotify API response",
+    }
+}
+
+fn sanitize_spotify_error_message(message: &str) -> String {
+    const MAX_SPOTIFY_ERROR_MESSAGE_LEN: usize = 240;
+    let mut sanitized = message
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(MAX_SPOTIFY_ERROR_MESSAGE_LEN)
+        .collect::<String>();
+    if sanitized.is_empty() {
+        sanitized = "unexpected Spotify API response".to_owned();
+    }
+    sanitized
 }
