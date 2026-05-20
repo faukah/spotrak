@@ -1,0 +1,14 @@
+---
+import CatalogDetail from '../../components/cards/CatalogDetail.svelte';
+import AppLayout from '../../components/layout/AppLayout.astro';
+import { serverApiFetch } from '../../lib/api/server';
+import type { TrackDetail } from '../../lib/api/types';
+import { viewTransitionName } from '../../lib/images';
+const { id = '' } = Astro.params;
+const transitionName = Astro.url.searchParams.get('vt') ?? viewTransitionName(id);
+const initialDetail = await serverApiFetch<TrackDetail>(Astro.request, `/tracks/${id}`);
+---
+
+<AppLayout title="Track · Spotrak">
+  <CatalogDetail kind="track" id={id} initialDetail={initialDetail} transitionName={transitionName} client:load />
+</AppLayout>

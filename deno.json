@@ -1,0 +1,57 @@
+{
+  "nodeModulesDir": "auto",
+  "tasks": {
+    "dev": "deno task web:dev",
+    "build": "deno task web:build",
+    "check": "cargo check && deno task web:check",
+    "test": "cargo test",
+    "typegen": "deno task api:openapi && deno task web:typegen",
+    "api:dev": "cargo run -- serve",
+    "api:check": "cargo check",
+    "api:test": "cargo test",
+    "api:openapi": "cargo run -- openapi target/openapi.json",
+    "web:dev": "deno run -A npm:astro@6.3.5 dev --root web --host 127.0.0.1 --port 4322",
+    "web:check": "deno run -A npm:astro@6.3.5 check --root web && deno run -A npm:svelte-check@4.4.8 --workspace web --tsconfig ./tsconfig.json",
+    "web:build": "deno task web:check && deno run -A npm:astro@6.3.5 build --root web",
+    "web:preview": "deno run -A web/server.ts",
+    "web:typegen": "deno run -A npm:openapi-typescript@7.13.0 target/openapi.json -o web/src/lib/api/generated.d.ts",
+    "shadcn": "deno run -A npm:shadcn-svelte@1.2.7"
+  },
+  "imports": {
+    "@/": "./web/src/",
+    "@astrojs/check": "npm:@astrojs/check@0.9.9",
+    "@astrojs/svelte": "npm:@astrojs/svelte@8.1.1",
+    "@deno/astro-adapter": "npm:@deno/astro-adapter@0.5.1",
+    "@lucide/svelte": "npm:@lucide/svelte@1.16.0",
+    "@tailwindcss/vite": "npm:@tailwindcss/vite@4.3.0",
+    "astro": "npm:astro@6.3.5",
+    "astro/": "npm:astro@6.3.5/",
+    "clsx": "npm:clsx@2.1.1",
+    "date-fns": "npm:date-fns@4.2.1",
+    "echarts": "npm:echarts@6.0.0",
+    "echarts/": "npm:echarts@6.0.0/",
+    "svelte": "npm:svelte@5.55.8",
+    "svelte/": "npm:svelte@5.55.8/",
+    "tailwind-merge": "npm:tailwind-merge@3.6.0",
+    "tailwind-variants": "npm:tailwind-variants@3.2.2",
+    "tailwindcss": "npm:tailwindcss@4.3.0",
+    "typescript": "npm:typescript@5.9.3"
+  },
+  "fmt": {
+    "exclude": [
+      "target",
+      "web/.astro",
+      "web/dist",
+      "web/src/lib/api/generated.d.ts"
+    ]
+  },
+  "lint": {
+    "exclude": [
+      "target",
+      "web/.astro",
+      "web/dist",
+      "web/src/lib/api/generated.d.ts"
+    ]
+  },
+  "allowScripts": ["npm:sharp@0.34.5"]
+}

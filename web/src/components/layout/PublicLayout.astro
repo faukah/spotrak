@@ -1,0 +1,59 @@
+---
+import { ClientRouter } from 'astro:transitions';
+import PublicShareGuard from '../public/PublicShareGuard.svelte';
+import ThemeScript from './ThemeScript.astro';
+import ThemeToggle from './ThemeToggle.svelte';
+import '../../styles/global.css';
+
+interface Props {
+  title?: string;
+  token: string;
+  guard?: boolean;
+}
+
+const { title = 'Shared Spotrak', token, guard = true } = Astro.props;
+const pathname = Astro.url.pathname;
+const base = `/public/${token}`;
+const nav = [
+  ['Overview', base],
+  ['History', `${base}/history`],
+  ['Tracks', `${base}/top/tracks`],
+  ['Artists', `${base}/top/artists`],
+  ['Albums', `${base}/top/albums`],
+];
+
+function isActive(href: string) {
+  return href === base ? pathname === base || pathname === `${base}/` : pathname.startsWith(href);
+}
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#eeece3" />
+    <ThemeScript />
+    <title>{title}</title>
+    <ClientRouter />
+  </head>
+  <body>
+    {guard && <PublicShareGuard token={token} client:load />}
+    <header class="site-header public-header">
+      <a class="brand" href={base} aria-label="Shared Spotrak overview">
+        <span class="brand-mark">ST</span>
+        <span>Shared stats</span>
+      </a>
+      <nav class="shell-nav" aria-label="Public navigation">
+        {nav.map(([label, href]) => <a href={href} aria-current={isActive(href) ? 'page' : undefined}>{label}</a>)}
+      </nav>
+      <div class="site-controls">
+        <ThemeToggle client:load />
+      </div>
+    </header>
+    <main class="page">
+      <slot />
+    </main>
+  </body>
+</html>

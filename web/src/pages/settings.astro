@@ -1,0 +1,13 @@
+---
+import AppLayout from '../components/layout/AppLayout.astro';
+import SettingsForm from '../components/settings/SettingsForm.svelte';
+---
+
+<AppLayout title="Settings · Spotrak">
+  <section class="page-stack">
+    <div class="page-title">
+      <h1>Settings</h1>
+    </div>
+    <SettingsForm client:load />
+  </section>
+</AppLayout>

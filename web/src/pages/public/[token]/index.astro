@@ -1,0 +1,40 @@
+---
+import PublicLayout from '../../../components/layout/PublicLayout.astro';
+import PublicInvalid from '../../../components/public/PublicInvalid.astro';
+import SummaryCards from '../../../components/cards/SummaryCards.svelte';
+import TopList from '../../../components/cards/TopList.svelte';
+import HistoryList from '../../../components/history/HistoryList.svelte';
+import { publicShareContext } from '../../../lib/public-share';
+
+const { token = '' } = Astro.params;
+const { apiPrefix, pagePrefix, valid } = await publicShareContext(Astro.request, token);
+---
+
+<PublicLayout title="Shared overview · Spotrak" token={token} guard={valid}>
+  {valid ? (
+    <section class="page-stack">
+      <div class="page-title">
+        <h1>Overview</h1>
+      </div>
+      <SummaryCards apiPrefix={apiPrefix} client:load />
+      <section class="rank-grid">
+        <TopList kind="tracks" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:load />
+        <TopList kind="artists" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:load />
+        <TopList kind="albums" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:load />
+      </section>
+      <HistoryList limit={16} apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:load />
+    </section>
+  ) : <PublicInvalid />}
+</PublicLayout>
+
+<style>
+  .rank-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  @media (max-width: 1120px) {
+    .rank-grid { grid-template-columns: 1fr; }
+  }
+</style>

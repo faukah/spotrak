@@ -1,0 +1,20 @@
+---
+import PublicLayout from '../../../../components/layout/PublicLayout.astro';
+import PublicInvalid from '../../../../components/public/PublicInvalid.astro';
+import TopList from '../../../../components/cards/TopList.svelte';
+import { publicShareContext } from '../../../../lib/public-share';
+
+const { token = '' } = Astro.params;
+const { apiPrefix, pagePrefix, valid } = await publicShareContext(Astro.request, token);
+---
+
+<PublicLayout title="Shared top artists · Spotrak" token={token} guard={valid}>
+  {valid ? (
+    <section class="page-stack">
+      <div class="page-title">
+        <h1>Top artists</h1>
+      </div>
+      <TopList kind="artists" limit={50} apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:load />
+    </section>
+  ) : <PublicInvalid />}
+</PublicLayout>

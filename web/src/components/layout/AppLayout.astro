@@ -1,0 +1,63 @@
+---
+import { ClientRouter } from 'astro:transitions';
+import '../../styles/global.css';
+import AuthStatus from './AuthStatus.svelte';
+import AuthGate from '../auth/AuthGate.svelte';
+import SearchBox from '../search/SearchBox.svelte';
+import ThemeScript from './ThemeScript.astro';
+import ThemeToggle from './ThemeToggle.svelte';
+
+interface Props {
+  title?: string;
+}
+
+const { title = 'Spotrak' } = Astro.props;
+const pathname = Astro.url.pathname;
+const nav = [
+  ['Overview', '/'],
+  ['History', '/history'],
+  ['Tracks', '/top/tracks'],
+  ['Artists', '/top/artists'],
+  ['Albums', '/top/albums'],
+  ['Imports', '/imports'],
+  ['Settings', '/settings'],
+  ['Admin', '/admin'],
+];
+
+function isActive(href: string) {
+  return href === '/' ? pathname === '/' : pathname.startsWith(href);
+}
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#eeece3" />
+    <ThemeScript />
+    <title>{title}</title>
+    <ClientRouter />
+  </head>
+  <body>
+    <AuthGate client:load />
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Spotrak overview">
+        <span class="brand-mark">ST</span>
+        <span>Spotrak</span>
+      </a>
+      <SearchBox client:load />
+      <nav class="shell-nav" aria-label="Main navigation">
+        {nav.map(([label, href]) => <a href={href} aria-current={isActive(href) ? 'page' : undefined}>{label}</a>)}
+      </nav>
+      <div class="site-controls">
+        <ThemeToggle client:load />
+        <AuthStatus client:load />
+      </div>
+    </header>
+    <main class="page">
+      <slot />
+    </main>
+  </body>
+</html>

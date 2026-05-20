@@ -1,0 +1,38 @@
+---
+import AppLayout from '../components/layout/AppLayout.astro';
+---
+
+<AppLayout title="Admin · Spotrak">
+  <section class="page-stack">
+    <div class="page-title">
+      <h1>Admin</h1>
+    </div>
+    <section class="panel admin-panel">
+      <h2>Available now</h2>
+      <ul>
+        <li>First Spotify user becomes admin.</li>
+        <li>Admin-protected API endpoints are available.</li>
+        <li>Global preference and user management routes are exposed by the backend.</li>
+      </ul>
+    </section>
+  </section>
+</AppLayout>
+
+<style>
+  .admin-panel {
+    padding: 1rem;
+  }
+
+  h2 {
+    margin: 0 0 0.75rem;
+    font-size: 1.1rem;
+  }
+
+  ul {
+    display: grid;
+    gap: 0.45rem;
+    margin: 0;
+    padding-left: 1rem;
+    color: var(--color-muted);
+  }
+</style>

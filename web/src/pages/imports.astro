@@ -1,0 +1,13 @@
+---
+import AppLayout from '../components/layout/AppLayout.astro';
+import ImportPanel from '../components/import/ImportPanel.svelte';
+---
+
+<AppLayout title="Imports · Spotrak">
+  <section class="page-stack">
+    <div class="page-title">
+      <h1>Imports</h1>
+    </div>
+    <ImportPanel client:load />
+  </section>
+</AppLayout>
