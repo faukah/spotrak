@@ -4,7 +4,6 @@
 
   outputs =
     {
-      self,
       nixpkgs,
       ...
     }:
@@ -17,18 +16,8 @@
       pkgsForEach = nixpkgs.legacyPackages;
     in
     {
-      packages = forEachSystem (system: rec {
-        default = capport;
-        capport = pkgsForEach.${system}.callPackage ./package.nix { };
-      });
-
       devShells = forEachSystem (system: {
         default = pkgsForEach.${system}.callPackage ./shell.nix { };
       });
-
-      nixosModules = {
-        default = self.nixosModules.capport;
-        capport = ./nix/module.nix;
-      };
     };
 }
