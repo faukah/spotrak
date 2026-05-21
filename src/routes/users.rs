@@ -2,7 +2,7 @@ use axum::{
     Json, Router,
     extract::State,
     http::HeaderMap,
-    routing::{get, patch},
+    routing::{delete, get, patch},
 };
 
 use crate::{
@@ -21,6 +21,7 @@ pub fn router() -> Router<AppState> {
         .route("/users/me", get(me))
         .route("/users/me/settings", patch(update_settings))
         .route("/users/me/profile", patch(update_profile))
+        .route("/users/me/spotify-connection", delete(disconnect_spotify))
         .route(
             "/users/me/public-token",
             get(get_public_token)
@@ -106,6 +107,20 @@ pub async fn update_profile(
             token: None,
         },
     }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/users/me/spotify-connection",
+    responses((status = 204, description = "Deleted stored Spotify tokens and stopped polling"))
+)]
+pub async fn disconnect_spotify(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<axum::http::StatusCode> {
+    let user = current_user(&headers, &state).await?;
+    users::clear_spotify_tokens(&state.db, user.id).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(

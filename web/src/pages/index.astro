@@ -8,5 +8,5 @@ const initialOverview = await serverApiFetch<OverviewStatsResponse>(Astro.reques
 ---
 
 <AppLayout title="Overview · Spotrak">
-  <OverviewDashboard initialOverview={initialOverview} client:load />
+  <OverviewDashboard initialOverview={initialOverview} client:idle />
 </AppLayout>

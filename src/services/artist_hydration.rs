@@ -25,7 +25,7 @@ pub async fn process_queued_once(state: &AppState) -> Result<usize> {
             continue;
         };
 
-        let access_token = match poller::valid_access_token(state, &user).await {
+        let mut access_token = match poller::valid_access_token(state, &user).await {
             Ok(access_token) => access_token,
             Err(error) => {
                 spotify_queue::fail_artist_hydration(
@@ -44,7 +44,20 @@ pub async fn process_queued_once(state: &AppState) -> Result<usize> {
             }
         };
 
-        match ingestion::hydrate_artist_metadata(state, &access_token, missing).await {
+        let hydration =
+            match ingestion::hydrate_artist_metadata(state, &access_token, missing.clone()).await {
+                Err(error) if poller::is_spotify_authorization_error(&error) => {
+                    tracing::info!(
+                        artist_id = %job.artist_id,
+                        "refreshing Spotify token after artist hydration authorization failure"
+                    );
+                    access_token = poller::force_refresh_access_token(state, user.id).await?;
+                    ingestion::hydrate_artist_metadata(state, &access_token, missing).await
+                }
+                result => result,
+            };
+
+        match hydration {
             Ok(count) => {
                 hydrated += count;
                 spotify_queue::complete_artist_hydration(&state.db, &job.artist_id).await?;

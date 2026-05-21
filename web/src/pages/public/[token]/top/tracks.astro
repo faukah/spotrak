@@ -14,7 +14,7 @@ const { apiPrefix, pagePrefix, valid } = await publicShareContext(Astro.request,
       <div class="page-title">
         <h1>Top tracks</h1>
       </div>
-      <TopList kind="tracks" limit={50} apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:load />
+      <TopList kind="tracks" limit={50} apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
     </section>
   ) : <PublicInvalid />}
 </PublicLayout>

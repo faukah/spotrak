@@ -75,12 +75,20 @@
 
   @media (max-width: 500px) {
     .theme-toggle {
-      width: 2rem;
+      width: 2.75rem;
+      min-height: 2.75rem;
       padding: 0;
     }
 
     .theme-label {
       display: none;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .theme-toggle {
+      min-width: 2.75rem;
+      min-height: 2.75rem;
     }
   }
 </style>

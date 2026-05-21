@@ -180,6 +180,15 @@
               {/snippet}
             </AreaChart>
           </Chart.Container>
+          <table class="sr-only">
+            <caption>{activeLabel} timeline data</caption>
+            <thead><tr><th scope="col">Date</th><th scope="col">Value</th></tr></thead>
+            <tbody>
+              {#each points as point}
+                <tr><td>{formatLongDate(point.label)}</td><td>{formatTooltipValue(point.value)}</td></tr>
+              {/each}
+            </tbody>
+          </table>
           {#if chartLoading}
             <div class="chart-overlay"><span>Loading timeline…</span></div>
           {:else if chartError}

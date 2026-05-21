@@ -106,7 +106,7 @@ pub async fn process_job(state: &AppState, job: ImportJob) -> Result<()> {
     let user = users::find_by_id(&state.db, job.user_id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let (access_token, token_source) = (
+    let (mut access_token, token_source) = (
         poller::valid_access_token(state, &user).await?,
         "valid_user_token",
     );
@@ -162,8 +162,15 @@ pub async fn process_job(state: &AppState, job: ImportJob) -> Result<()> {
                 );
             }
 
-            if let Some(track) =
-                resolve_track(state, &access_token, token_source, candidate, &mut cache).await?
+            if let Some(track) = resolve_track(
+                state,
+                job.user_id,
+                &mut access_token,
+                token_source,
+                candidate,
+                &mut cache,
+            )
+            .await?
             {
                 pending.push(SpotifyRecentlyPlayedItem {
                     track,
@@ -323,7 +330,8 @@ fn parse_full_privacy_file(bytes: &[u8]) -> Result<Vec<ImportCandidate>> {
 
 async fn resolve_track(
     state: &AppState,
-    access_token: &str,
+    user_id: uuid::Uuid,
+    access_token: &mut String,
     token_source: &'static str,
     candidate: &ImportCandidate,
     cache: &mut HashMap<String, Option<SpotifyTrack>>,
@@ -341,7 +349,7 @@ async fn resolve_track(
             cache.insert(key, Some(track.clone()));
             return Ok(Some(track));
         }
-        let track = match spotify_client::get_track(state, access_token, track_id).await {
+        let track = match get_track_with_reauth(state, user_id, access_token, track_id).await {
             Ok(track) => Some(track),
             Err(error) => {
                 if is_spotify_rate_limited(&error) {
@@ -351,6 +359,16 @@ async fn resolve_track(
                         spotify_market = ?state.config.spotify_market,
                         token_source,
                         "Spotify track metadata lookup was rate-limited; stopping this import so it can be retried later"
+                    );
+                    return Err(error);
+                }
+                if poller::is_spotify_authorization_error(&error) {
+                    tracing::warn!(
+                        ?error,
+                        track_id,
+                        spotify_market = ?state.config.spotify_market,
+                        token_source,
+                        "Spotify track metadata lookup still failed after token refresh; stopping this import until the user reconnects Spotify"
                     );
                     return Err(error);
                 }
@@ -404,7 +422,7 @@ async fn resolve_track(
                 }
             }
         }
-        let track = match spotify_client::search_track(state, access_token, query).await {
+        let track = match search_track_with_reauth(state, user_id, access_token, query).await {
             Ok(track) => track,
             Err(error) => {
                 if is_spotify_rate_limited(&error) {
@@ -414,6 +432,16 @@ async fn resolve_track(
                         spotify_market = ?state.config.spotify_market,
                         token_source,
                         "Spotify search metadata lookup was rate-limited; stopping this import so it can be retried later"
+                    );
+                    return Err(error);
+                }
+                if poller::is_spotify_authorization_error(&error) {
+                    tracing::warn!(
+                        ?error,
+                        query,
+                        spotify_market = ?state.config.spotify_market,
+                        token_source,
+                        "Spotify search metadata lookup still failed after token refresh; stopping this import until the user reconnects Spotify"
                     );
                     return Err(error);
                 }
@@ -433,6 +461,46 @@ async fn resolve_track(
     }
 
     Ok(None)
+}
+
+async fn get_track_with_reauth(
+    state: &AppState,
+    user_id: uuid::Uuid,
+    access_token: &mut String,
+    track_id: &str,
+) -> Result<SpotifyTrack> {
+    match spotify_client::get_track(state, access_token.as_str(), track_id).await {
+        Err(error) if poller::is_spotify_authorization_error(&error) => {
+            tracing::info!(
+                user_id = %user_id,
+                track_id,
+                "refreshing Spotify token after track lookup authorization failure"
+            );
+            *access_token = poller::force_refresh_access_token(state, user_id).await?;
+            spotify_client::get_track(state, access_token.as_str(), track_id).await
+        }
+        result => result,
+    }
+}
+
+async fn search_track_with_reauth(
+    state: &AppState,
+    user_id: uuid::Uuid,
+    access_token: &mut String,
+    query: &str,
+) -> Result<Option<SpotifyTrack>> {
+    match spotify_client::search_track(state, access_token.as_str(), query).await {
+        Err(error) if poller::is_spotify_authorization_error(&error) => {
+            tracing::info!(
+                user_id = %user_id,
+                query,
+                "refreshing Spotify token after search authorization failure"
+            );
+            *access_token = poller::force_refresh_access_token(state, user_id).await?;
+            spotify_client::search_track(state, access_token.as_str(), query).await
+        }
+        result => result,
+    }
 }
 
 fn parse_privacy_time(value: &str, timezone: Tz) -> Result<chrono::DateTime<Utc>> {

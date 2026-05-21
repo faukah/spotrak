@@ -16,13 +16,13 @@ const { apiPrefix, pagePrefix, valid } = await publicShareContext(Astro.request,
       <div class="page-title">
         <h1>Overview</h1>
       </div>
-      <SummaryCards apiPrefix={apiPrefix} client:load />
+      <SummaryCards apiPrefix={apiPrefix} client:visible />
       <section class="rank-grid">
-        <TopList kind="tracks" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:load />
-        <TopList kind="artists" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:load />
-        <TopList kind="albums" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:load />
+        <TopList kind="tracks" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
+        <TopList kind="artists" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
+        <TopList kind="albums" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
       </section>
-      <HistoryList limit={16} apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:load />
+      <HistoryList limit={16} apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
     </section>
   ) : <PublicInvalid />}
 </PublicLayout>

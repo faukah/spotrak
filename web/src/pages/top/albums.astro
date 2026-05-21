@@ -8,6 +8,6 @@ import TopList from '../../components/cards/TopList.svelte';
     <div class="page-title">
       <h1>Top albums</h1>
     </div>
-    <TopList kind="albums" limit={50} client:load />
+    <TopList kind="albums" limit={50} client:visible />
   </section>
 </AppLayout>

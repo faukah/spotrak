@@ -23,11 +23,28 @@
   let deletingHistory = false;
   let error: string | null = null;
   let pendingConfirmation: PendingConfirmation | null = null;
+  let dialogElement: HTMLDivElement | null = null;
+  let cancelButton: HTMLButtonElement | null = null;
+  let previousFocus: HTMLElement | null = null;
 
   onMount(() => {
     void load();
     const interval = window.setInterval(() => void load(false), 5_000);
-    return () => window.clearInterval(interval);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!pendingConfirmation) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelConfirmation();
+        return;
+      }
+      if (event.key === 'Tab') trapDialogFocus(event);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('keydown', onKeyDown);
+      document.body.classList.remove('spotrak-dialog-open');
+    };
   });
 
   async function load(showLoading = true) {
@@ -60,12 +77,12 @@
   }
 
   function deleteImportedHistory() {
-    pendingConfirmation = {
+    openConfirmation({
       title: 'Remove imported history?',
       message: 'Remove all listening events created by privacy/full-privacy imports? This is useful for old imports that were deleted before event tracking was added.',
       confirmLabel: 'Remove imported history',
       run: performDeleteImportedHistory,
-    };
+    });
   }
 
   async function performDeleteImportedHistory() {
@@ -83,12 +100,12 @@
 
   function removeJob(job: ImportJob) {
     const action = job.status === 'progress' ? 'cancel' : 'remove';
-    pendingConfirmation = {
+    openConfirmation({
       title: `${action === 'cancel' ? 'Cancel' : 'Remove'} import?`,
       message: `${action === 'cancel' ? 'Cancel' : 'Remove'} import "${job.name}"?`,
       confirmLabel: action === 'cancel' ? 'Cancel import' : 'Remove import',
       run: () => performRemoveJob(job, action),
-    };
+    });
   }
 
   async function performRemoveJob(job: ImportJob, action: 'cancel' | 'remove') {
@@ -108,24 +125,61 @@
     }
   }
 
-  function cancelConfirmation() {
+  function openConfirmation(confirmation: PendingConfirmation) {
+    previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    pendingConfirmation = confirmation;
+    document.body.classList.add('spotrak-dialog-open');
+    window.requestAnimationFrame(() => cancelButton?.focus());
+  }
+
+  function closeConfirmation(restoreFocus = true) {
+    const focusTarget = previousFocus;
     pendingConfirmation = null;
+    document.body.classList.remove('spotrak-dialog-open');
+    if (restoreFocus) window.requestAnimationFrame(() => focusTarget?.focus());
+    previousFocus = null;
+  }
+
+  function cancelConfirmation() {
+    closeConfirmation();
   }
 
   async function confirmPending() {
     const confirmedAction = pendingConfirmation;
-    pendingConfirmation = null;
+    closeConfirmation();
     await confirmedAction?.run();
+  }
+
+  function trapDialogFocus(event: KeyboardEvent) {
+    const focusable = dialogElement
+      ? [...dialogElement.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+          .filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true')
+      : [];
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialogElement?.focus();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    } else if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    }
   }
 </script>
 
 {#if pendingConfirmation}
   <div class="confirm-backdrop" aria-hidden="true"></div>
-  <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="import-confirm-title">
+  <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="import-confirm-title" aria-describedby="import-confirm-message" tabindex="-1" bind:this={dialogElement}>
     <h2 id="import-confirm-title">{pendingConfirmation.title}</h2>
-    <p>{pendingConfirmation.message}</p>
+    <p id="import-confirm-message">{pendingConfirmation.message}</p>
     <div class="confirm-actions">
-      <Button variant="outline" size="sm" onclick={cancelConfirmation}>Keep</Button>
+      <Button bind:ref={cancelButton} variant="outline" size="sm" onclick={cancelConfirmation}>Keep</Button>
       <Button variant="destructive" size="sm" onclick={() => void confirmPending()}>{pendingConfirmation.confirmLabel}</Button>
     </div>
   </div>
@@ -239,12 +293,15 @@
     font-size: 0.8rem;
   }
 
+  :global(body.spotrak-dialog-open) {
+    overflow: hidden;
+  }
+
   .confirm-backdrop {
     position: fixed;
     inset: 0;
     z-index: 80;
-    background: color-mix(in srgb, var(--color-bg) 72%, transparent);
-    backdrop-filter: blur(12px);
+    background: color-mix(in srgb, var(--color-bg) 88%, transparent);
   }
 
   .confirm-dialog {
@@ -261,6 +318,10 @@
     padding: 1rem;
     background: var(--color-bg-elevated);
     box-shadow: var(--shadow-card);
+  }
+
+  .confirm-dialog:focus {
+    outline: none;
   }
 
   .confirm-dialog h2,

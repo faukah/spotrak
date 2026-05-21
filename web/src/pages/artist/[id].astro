@@ -9,5 +9,5 @@ const initialDetail = await serverApiFetch<ArtistDetail>(Astro.request, `/artist
 ---
 
 <AppLayout title="Artist · Spotrak">
-  <CatalogDetail kind="artist" id={id} initialDetail={initialDetail} transitionName={transitionName} client:load />
+  <CatalogDetail kind="artist" id={id} initialDetail={initialDetail} transitionName={transitionName} client:visible />
 </AppLayout>

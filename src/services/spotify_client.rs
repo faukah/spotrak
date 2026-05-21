@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{collections::HashSet, time::Instant};
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use reqwest::{StatusCode, header};
@@ -22,23 +22,28 @@ const SPOTIFY_ACCOUNTS: &str = "https://accounts.spotify.com";
 const SPOTIFY_API: &str = "https://api.spotify.com";
 const MAX_RETRY_AFTER_SECONDS: u64 = 60;
 const MAX_SPOTIFY_RETRIES: u32 = 3;
+const SPOTIFY_AUTH_SCOPES: &str = "user-read-private user-read-recently-played";
+const REQUIRED_SPOTIFY_SCOPES: &[&str] = &["user-read-private", "user-read-recently-played"];
 
-pub fn authorize_url(config: &Config, state: &str) -> Result<Url> {
+pub fn authorize_url(config: &Config, state: &str, code_challenge: &str) -> Result<Url> {
     let mut url = Url::parse(&format!("{SPOTIFY_ACCOUNTS}/authorize"))
         .map_err(|err| AppError::internal(err.to_string()))?;
     url.query_pairs_mut()
         .append_pair("response_type", "code")
         .append_pair("client_id", &config.spotify_public)
         .append_pair("redirect_uri", &config.oauth_callback_url())
-        .append_pair(
-            "scope",
-            "user-read-private user-read-email user-read-recently-played",
-        )
-        .append_pair("state", state);
+        .append_pair("scope", SPOTIFY_AUTH_SCOPES)
+        .append_pair("state", state)
+        .append_pair("code_challenge_method", "S256")
+        .append_pair("code_challenge", code_challenge);
     Ok(url)
 }
 
-pub async fn exchange_code(state: &AppState, code: &str) -> Result<StoredSpotifyTokens> {
+pub async fn exchange_code(
+    state: &AppState,
+    code: &str,
+    code_verifier: &str,
+) -> Result<StoredSpotifyTokens> {
     wait_for_spotify_slot(state).await?;
     state.metrics.inc_spotify_requests();
     let response = state
@@ -52,10 +57,11 @@ pub async fn exchange_code(state: &AppState, code: &str) -> Result<StoredSpotify
             ("grant_type", "authorization_code"),
             ("code", code),
             ("redirect_uri", &state.config.oauth_callback_url()),
+            ("code_verifier", code_verifier),
         ])
         .send()
         .await?;
-    parse_token_response(response).await
+    parse_token_response(response, true).await
 }
 
 pub async fn refresh_token(state: &AppState, refresh_token: &str) -> Result<StoredSpotifyTokens> {
@@ -74,7 +80,7 @@ pub async fn refresh_token(state: &AppState, refresh_token: &str) -> Result<Stor
         ])
         .send()
         .await?;
-    parse_token_response(response).await
+    parse_token_response(response, false).await
 }
 
 pub async fn me(state: &AppState, access_token: &str) -> Result<SpotifyProfile> {
@@ -109,6 +115,9 @@ pub async fn recently_played_after(
                 .await
             {
                 Ok(page) => page,
+                Err(error) if is_spotify_status(&error, StatusCode::UNAUTHORIZED) => {
+                    return Err(error);
+                }
                 Err(error) if !items.is_empty() => {
                     tracing::warn!(
                         ?error,
@@ -186,6 +195,13 @@ fn append_market(state: &AppState, url: &mut Url) {
     if let Some(market) = &state.config.spotify_market {
         url.query_pairs_mut().append_pair("market", market);
     }
+}
+
+fn is_spotify_status(error: &AppError, status_code: StatusCode) -> bool {
+    matches!(
+        error,
+        AppError::SpotifyApi { status, .. } if *status == status_code
+    )
 }
 
 async fn spotify_get_json<T: DeserializeOwned>(
@@ -331,11 +347,22 @@ async fn wait_for_spotify_slot(state: &AppState) -> Result<()> {
     Ok(())
 }
 
-async fn parse_token_response(response: reqwest::Response) -> Result<StoredSpotifyTokens> {
+async fn parse_token_response(
+    response: reqwest::Response,
+    validate_scopes: bool,
+) -> Result<StoredSpotifyTokens> {
     if !response.status().is_success() {
         return Err(spotify_http_error(response).await);
     }
     let token = response.json::<SpotifyTokenResponse>().await?;
+    if !token.token_type.eq_ignore_ascii_case("bearer") {
+        return Err(AppError::spotify(
+            "Spotify returned an unsupported token type",
+        ));
+    }
+    if validate_scopes {
+        validate_granted_scopes(token.scope.as_deref())?;
+    }
     let expires_in = token.expires_in.max(0);
     let token_expires_at = Utc::now() + ChronoDuration::seconds(expires_in);
     Ok(StoredSpotifyTokens {
@@ -343,6 +370,25 @@ async fn parse_token_response(response: reqwest::Response) -> Result<StoredSpoti
         refresh_token: token.refresh_token,
         token_expires_at,
     })
+}
+
+fn validate_granted_scopes(scope: Option<&str>) -> Result<()> {
+    let granted = scope
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<HashSet<_>>();
+    let missing = REQUIRED_SPOTIFY_SCOPES
+        .iter()
+        .copied()
+        .filter(|required| !granted.contains(required))
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(AppError::spotify(format!(
+        "Spotify did not grant required scope(s): {}",
+        missing.join(", ")
+    )))
 }
 
 fn retry_after_seconds(headers: &header::HeaderMap) -> Option<u64> {
@@ -471,4 +517,55 @@ fn sanitize_spotify_error_message(message: &str) -> String {
         sanitized = "unexpected Spotify API response".to_owned();
     }
     sanitized
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::BTreeMap, path::PathBuf, time::Duration};
+
+    use secrecy::SecretString;
+
+    use super::*;
+    use crate::config::CorsConfig;
+
+    #[test]
+    fn authorize_url_uses_least_privilege_scopes_and_pkce() {
+        let config = Config {
+            database_url: SecretString::from("postgresql://spotrak:spotrak@127.0.0.1/spotrak"),
+            api_endpoint: Url::parse("https://api.spotrak.example").unwrap(),
+            client_endpoint: Url::parse("https://spotrak.example").unwrap(),
+            spotify_public: "spotify_client_id".to_owned(),
+            spotify_secret: SecretString::from("spotify_client_secret"),
+            spotify_token_encryption_key: SecretString::from("spotify_token_key"),
+            spotify_market: None,
+            port: 8080,
+            timezone: chrono_tz::UTC,
+            log_level: "info".to_owned(),
+            cookie_validity: Duration::from_secs(60),
+            spotify_api_delay: MIN_SPOTIFY_API_DELAY,
+            cors: CorsConfig::Any,
+            import_dir: PathBuf::from("imports"),
+            max_import_cache_size: 0,
+            prometheus_username: None,
+            prometheus_password: None,
+        };
+
+        let url = authorize_url(&config, "raw-state", "pkce-challenge").unwrap();
+        let query = url.query_pairs().into_owned().collect::<BTreeMap<_, _>>();
+
+        assert_eq!(
+            query.get("scope").map(String::as_str),
+            Some(SPOTIFY_AUTH_SCOPES)
+        );
+        assert!(!query.get("scope").unwrap().contains("user-read-email"));
+        assert_eq!(
+            query.get("code_challenge_method").map(String::as_str),
+            Some("S256")
+        );
+        assert_eq!(
+            query.get("code_challenge").map(String::as_str),
+            Some("pkce-challenge")
+        );
+        assert_eq!(query.get("state").map(String::as_str), Some("raw-state"));
+    }
 }

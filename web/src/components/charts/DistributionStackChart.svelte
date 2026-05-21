@@ -238,6 +238,23 @@
           {/snippet}
         </AreaChart>
       </Chart.Container>
+      <table class="sr-only">
+        <caption>{title} data by bucket</caption>
+        <thead>
+          <tr>
+            <th scope="col">Bucket</th>
+            {#each entities as entity}<th scope="col">{entity.name}</th>{/each}
+          </tr>
+        </thead>
+        <tbody>
+          {#each chartData as point}
+            <tr>
+              <td>{formatTooltipLabel(point.bucket)}</td>
+              {#each entities as entity}<td>{formatRaw(point[entity.id])}</td>{/each}
+            </tr>
+          {/each}
+        </tbody>
+      </table>
     {/if}
   </Card.Content>
 </Card.Root>

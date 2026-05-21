@@ -102,6 +102,17 @@
           {/snippet}
         </LineChart>
       </Chart.Container>
+      <table class="sr-only">
+        <caption>Activity data by bucket</caption>
+        <thead>
+          <tr><th scope="col">Date</th><th scope="col">Plays</th><th scope="col">Listening time in minutes</th></tr>
+        </thead>
+        <tbody>
+          {#each chartData as point}
+            <tr><td>{formatLongDate(point.label)}</td><td>{point.plays}</td><td>{Math.round(point.minutes)}</td></tr>
+          {/each}
+        </tbody>
+      </table>
     {/if}
   </Card.Content>
 </Card.Root>

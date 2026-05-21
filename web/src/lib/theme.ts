@@ -4,8 +4,8 @@ export type EffectiveTheme = "light" | "dark";
 export const THEME_STORAGE_KEY = "spotrak.theme";
 
 const THEME_COLORS: Record<EffectiveTheme, string> = {
-  light: "#eeece3",
-  dark: "#0b0d10",
+  light: "oklch(0.94 0.01 85)",
+  dark: "oklch(0.145 0.012 255)",
 };
 
 export function isThemePreference(value: unknown): value is ThemePreference {

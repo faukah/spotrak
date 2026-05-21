@@ -14,6 +14,7 @@ pub struct Config {
     pub client_endpoint: Url,
     pub spotify_public: String,
     pub spotify_secret: SecretString,
+    pub spotify_token_encryption_key: SecretString,
     pub spotify_market: Option<String>,
     pub port: u16,
     pub timezone: Tz,
@@ -49,7 +50,12 @@ impl Config {
         let api_endpoint = parse_url("API_ENDPOINT", &required("API_ENDPOINT")?)?;
         let client_endpoint = parse_url("CLIENT_ENDPOINT", &required("CLIENT_ENDPOINT")?)?;
         let spotify_public = required("SPOTIFY_PUBLIC")?;
-        let spotify_secret = SecretString::from(required("SPOTIFY_SECRET")?);
+        let spotify_secret_raw = required("SPOTIFY_SECRET")?;
+        let spotify_token_encryption_key = SecretString::from(
+            optional_non_empty("SPOTIFY_TOKEN_ENCRYPTION_KEY")
+                .unwrap_or_else(|| spotify_secret_raw.clone()),
+        );
+        let spotify_secret = SecretString::from(spotify_secret_raw);
         let spotify_market = parse_market(optional_non_empty("SPOTIFY_MARKET"))?;
         let port = parse_or("PORT", 8080)?;
         let timezone = parse_timezone(&env::var("TIMEZONE").unwrap_or_else(|_| "UTC".to_owned()))?;
@@ -91,6 +97,7 @@ impl Config {
             client_endpoint,
             spotify_public,
             spotify_secret,
+            spotify_token_encryption_key,
             spotify_market,
             port,
             timezone,
@@ -125,6 +132,7 @@ impl fmt::Debug for Config {
             .field("client_endpoint", &self.client_endpoint)
             .field("spotify_public", &"<redacted>")
             .field("spotify_secret", &"<redacted>")
+            .field("spotify_token_encryption_key", &"<redacted>")
             .field("spotify_market", &self.spotify_market)
             .field("port", &self.port)
             .field("timezone", &self.timezone)
@@ -335,5 +343,10 @@ mod tests {
         assert!(
             validate_spotify_redirect_url(&Url::parse("http://spotrak.example").unwrap()).is_err()
         );
+    }
+
+    #[test]
+    fn spotify_delay_minimum_is_five_seconds() {
+        assert_eq!(MIN_SPOTIFY_API_DELAY, Duration::from_secs(5));
     }
 }

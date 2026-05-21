@@ -7,7 +7,7 @@ use crate::{
     domain::spotify::SpotifyRecentlyPlayedItem,
     error::{AppError, Result},
     repositories::{catalog, response_cache, spotify_queue},
-    services::spotify_client,
+    services::{poller, spotify_client},
     state::AppState,
 };
 
@@ -65,15 +65,19 @@ pub async fn hydrate_artist_metadata(
         match spotify_client::get_artist(state, access_token, &id).await {
             Ok(artist) => artists.push(artist),
             Err(error) => {
-                if matches!(
-                    &error,
-                    AppError::SpotifyApi { status, .. }
-                        if *status == reqwest::StatusCode::TOO_MANY_REQUESTS
-                ) {
+                if is_spotify_status(&error, reqwest::StatusCode::TOO_MANY_REQUESTS) {
                     tracing::warn!(
                         ?error,
                         artist_id = %id,
                         "Spotify artist metadata hydration was rate-limited; aborting optional hydration"
+                    );
+                    return Err(error);
+                }
+                if poller::is_spotify_authorization_error(&error) {
+                    tracing::info!(
+                        ?error,
+                        artist_id = %id,
+                        "Spotify artist metadata hydration needs a fresh user token"
                     );
                     return Err(error);
                 }
@@ -96,6 +100,13 @@ pub async fn hydrate_artist_metadata(
         catalog::upsert_artist_metadata(&state.db, &artists).await?;
     }
     Ok(hydrated)
+}
+
+fn is_spotify_status(error: &AppError, status_code: reqwest::StatusCode) -> bool {
+    matches!(
+        error,
+        AppError::SpotifyApi { status, .. } if *status == status_code
+    )
 }
 
 pub async fn ingest_recently_played(

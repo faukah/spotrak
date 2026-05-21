@@ -12,7 +12,7 @@ const script = `
   root.dataset.themePreference = preference;
   root.style.colorScheme = theme;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0b0d10' : '#eeece3');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? 'oklch(0.145 0.012 255)' : 'oklch(0.94 0.01 85)');
 })();
 `;
 ---

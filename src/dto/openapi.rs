@@ -14,6 +14,7 @@ use utoipa::OpenApi;
         crate::routes::users::me,
         crate::routes::users::update_settings,
         crate::routes::users::update_profile,
+        crate::routes::users::disconnect_spotify,
         crate::routes::users::create_public_token,
         crate::routes::users::delete_public_token,
         crate::routes::admin::list_users,

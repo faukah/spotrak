@@ -10,5 +10,5 @@ const { apiPrefix, valid, initialDetail } = await publicDetailContext<AlbumDetai
 ---
 
 <PublicLayout title="Shared album · Spotrak" token={token} guard={valid}>
-  {valid ? <CatalogDetail kind="album" id={id} apiPrefix={apiPrefix} initialDetail={initialDetail} transitionName={transitionName} client:load /> : <PublicInvalid />}
+  {valid ? <CatalogDetail kind="album" id={id} apiPrefix={apiPrefix} initialDetail={initialDetail} transitionName={transitionName} client:visible /> : <PublicInvalid />}
 </PublicLayout>

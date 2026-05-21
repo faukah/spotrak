@@ -298,7 +298,7 @@
           variant="outline"
           size="sm"
           class="range-trigger"
-          aria-haspopup="menu"
+          aria-haspopup="true"
           aria-expanded={rangeMenuOpen}
           onclick={() => (rangeMenuOpen = !rangeMenuOpen)}
         >
@@ -306,10 +306,10 @@
           <ChevronDown class="range-trigger-icon" aria-hidden="true" />
         </Button>
         {#if rangeMenuOpen}
-          <div class="range-dropdown" role="menu" aria-label="Choose overview time range">
+          <div class="range-dropdown" aria-label="Choose overview time range">
             <div class="dropdown-group">
               {#each rangeButtons as option (option.key)}
-                <button type="button" role="menuitemradio" aria-checked={rangeKey === option.key} class:active-range={rangeKey === option.key} onclick={() => setRange(option.key)}>
+                <button type="button" aria-pressed={rangeKey === option.key} class:active-range={rangeKey === option.key} onclick={() => setRange(option.key)}>
                   <span>{option.key === 'all' ? 'All time' : option.label}</span>
                   {#if rangeKey === option.key}<Check aria-hidden="true" />{/if}
                 </button>
@@ -319,7 +319,7 @@
             <span class="dropdown-label">Years</span>
             <div class="dropdown-group years">
               {#each availableYears as year (year)}
-                <button type="button" role="menuitemradio" aria-checked={rangeKey === 'selected-year' && selectedYear === year} class:active-range={rangeKey === 'selected-year' && selectedYear === year} onclick={() => chooseYear(year)}>
+                <button type="button" aria-pressed={rangeKey === 'selected-year' && selectedYear === year} class:active-range={rangeKey === 'selected-year' && selectedYear === year} onclick={() => chooseYear(year)}>
                   <span>{year}</span>
                   {#if rangeKey === 'selected-year' && selectedYear === year}<Check aria-hidden="true" />{/if}
                 </button>
@@ -476,6 +476,15 @@
               {/snippet}
             </BarChart>
           </Chart.Container>
+          <table class="sr-only">
+            <caption>Hourly listening distribution data</caption>
+            <thead><tr><th scope="col">Hour</th><th scope="col">Plays</th><th scope="col">Listening time in minutes</th></tr></thead>
+            <tbody>
+              {#each hourChartData as point}
+                <tr><td>{point.label}</td><td>{point.plays}</td><td>{Math.round(point.minutes)}</td></tr>
+              {/each}
+            </tbody>
+          </table>
         {/if}
       </Card.Content>
       </Card.Root>

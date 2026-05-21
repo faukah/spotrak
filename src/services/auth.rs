@@ -19,10 +19,12 @@ pub struct StartLoginResult {
 
 pub async fn start_spotify_login(state: &AppState) -> Result<StartLoginResult> {
     let raw_state = oauth_states::generate_state();
+    let code_verifier = oauth_states::generate_code_verifier();
+    let code_challenge = oauth_states::code_challenge(&code_verifier);
     let expires_at = Utc::now() + ChronoDuration::minutes(10);
-    oauth_states::create(&state.db, &raw_state, expires_at).await?;
+    oauth_states::create(&state.db, &raw_state, &code_verifier, expires_at).await?;
     Ok(StartLoginResult {
-        url: spotify_client::authorize_url(&state.config, &raw_state)?.to_string(),
+        url: spotify_client::authorize_url(&state.config, &raw_state, &code_challenge)?.to_string(),
         state: raw_state,
     })
 }
@@ -32,11 +34,11 @@ pub async fn complete_spotify_login(
     raw_state: &str,
     code: &str,
 ) -> Result<LoginResult> {
-    if !oauth_states::consume(&state.db, raw_state).await? {
+    let Some(code_verifier) = oauth_states::consume(&state.db, raw_state).await? else {
         return Err(AppError::validation("invalid or expired OAuth state"));
-    }
+    };
 
-    let tokens = spotify_client::exchange_code(state, code).await?;
+    let tokens = spotify_client::exchange_code(state, code, &code_verifier).await?;
     let profile = spotify_client::me(state, &tokens.access_token).await?;
     let username = profile
         .display_name

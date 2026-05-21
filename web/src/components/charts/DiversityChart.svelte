@@ -139,6 +139,29 @@
             </LineChart>
           </Chart.Container>
         {/if}
+        <table class="sr-only">
+          <caption>Diversity data by bucket</caption>
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">Unique tracks</th>
+              <th scope="col">Unique artists</th>
+              <th scope="col">Unique albums</th>
+              <th scope="col">Average release year</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each points as point}
+              <tr>
+                <td>{formatLongDate(point.bucket)}</td>
+                <td>{point.unique_tracks}</td>
+                <td>{point.unique_artists}</td>
+                <td>{point.unique_albums}</td>
+                <td>{point.average_release_year ?? 'Not available'}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
       </div>
     {/if}
   </Card.Content>

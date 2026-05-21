@@ -109,11 +109,15 @@
     display: grid;
     gap: 0.3rem;
     padding: 1rem;
-    background: rgb(0 0 0 / 0.82);
+    background: oklch(0.12 0.012 85 / 0.82);
+    color: oklch(0.94 0.012 85);
   }
 
   .lead-copy span,
-  .lead-copy small,
+  .lead-copy small {
+    color: oklch(0.78 0.018 85);
+  }
+
   .state {
     color: var(--color-muted);
   }
@@ -153,8 +157,8 @@
     inset: auto 0 0;
     overflow: hidden;
     padding: 1.4rem 0.5rem 0.45rem;
-    background: rgb(0 0 0 / 0.78);
-    color: color-mix(in srgb, var(--color-text) 92%, transparent);
+    background: oklch(0.12 0.012 85 / 0.78);
+    color: oklch(0.94 0.012 85);
     font-size: 0.72rem;
     font-weight: 700;
     text-overflow: ellipsis;

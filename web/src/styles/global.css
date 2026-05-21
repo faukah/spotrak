@@ -107,8 +107,7 @@ a {
   padding: 0.7rem var(--space-page);
   border-bottom: 1px solid
     color-mix(in srgb, var(--color-border) 84%, transparent);
-  background: color-mix(in srgb, var(--color-bg) 84%, transparent);
-  backdrop-filter: blur(18px) saturate(1.1);
+  background: color-mix(in srgb, var(--color-bg) 96%, var(--color-bg-elevated));
 }
 
 .site-header.public-header {
@@ -353,6 +352,14 @@ textarea {
   [data-slot="card-header"],
   [data-slot="card-content"] {
     padding-inline: 1rem;
+  }
+}
+
+@media (pointer: coarse) {
+  [data-slot="button"],
+  [data-slot="input"] {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
   }
 }
 

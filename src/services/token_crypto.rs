@@ -51,6 +51,11 @@ pub fn decrypt_spotify_token(config: &Config, value: &str) -> Result<String> {
 fn encryption_key(config: &Config) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"spotrak.spotify-token-encryption.v1");
-    hasher.update(config.spotify_secret.expose_secret().as_bytes());
+    hasher.update(
+        config
+            .spotify_token_encryption_key
+            .expose_secret()
+            .as_bytes(),
+    );
     hasher.finalize().into()
 }

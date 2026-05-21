@@ -94,25 +94,6 @@ pub async fn update_tokens(
     Ok(user)
 }
 
-pub async fn find_by_id_for_update_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    user_id: Uuid,
-) -> Result<Option<User>> {
-    let user = sqlx::query_as::<_, User>(
-        r#"
-        SELECT id, username, spotify_id, admin, access_token, refresh_token, token_expires_at,
-               last_spotify_poll_at, first_listened_at, created_at, updated_at
-        FROM users
-        WHERE id = $1
-        FOR UPDATE
-        "#,
-    )
-    .bind(user_id)
-    .fetch_optional(&mut **tx)
-    .await?;
-    Ok(user)
-}
-
 pub async fn update_tokens_tx(
     tx: &mut Transaction<'_, Postgres>,
     user_id: Uuid,
@@ -139,6 +120,55 @@ pub async fn update_tokens_tx(
     .fetch_one(&mut **tx)
     .await?;
     Ok(user)
+}
+
+pub async fn update_tokens_if_refresh_token_matches(
+    pool: &PgPool,
+    user_id: Uuid,
+    access_token: &str,
+    refresh_token: Option<&str>,
+    token_expires_at: DateTime<Utc>,
+    expected_refresh_token: Option<&str>,
+) -> Result<Option<User>> {
+    let user = sqlx::query_as::<_, User>(
+        r#"
+        UPDATE users
+        SET access_token = $2,
+            refresh_token = COALESCE($3, refresh_token),
+            token_expires_at = $4,
+            updated_at = now()
+        WHERE id = $1
+          AND refresh_token IS NOT DISTINCT FROM $5
+        RETURNING id, username, spotify_id, admin, access_token, refresh_token, token_expires_at,
+                  last_spotify_poll_at, first_listened_at, created_at, updated_at
+        "#,
+    )
+    .bind(user_id)
+    .bind(access_token)
+    .bind(refresh_token)
+    .bind(token_expires_at)
+    .bind(expected_refresh_token)
+    .fetch_optional(pool)
+    .await?;
+    Ok(user)
+}
+
+pub async fn clear_spotify_tokens(pool: &PgPool, user_id: Uuid) -> Result<bool> {
+    let result = sqlx::query(
+        r#"
+        UPDATE users
+        SET access_token = NULL,
+            refresh_token = NULL,
+            token_expires_at = NULL,
+            last_spotify_poll_at = NULL,
+            updated_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn update_profile(pool: &PgPool, user_id: Uuid, username: Option<&str>) -> Result<User> {

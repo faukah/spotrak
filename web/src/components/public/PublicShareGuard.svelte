@@ -47,8 +47,7 @@
     display: grid;
     place-items: center;
     padding: 1rem;
-    background: color-mix(in srgb, var(--color-bg) 88%, transparent);
-    backdrop-filter: blur(18px);
+    background: color-mix(in srgb, var(--color-bg) 96%, var(--color-bg-elevated));
   }
 
   section {

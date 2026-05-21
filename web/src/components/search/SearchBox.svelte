@@ -7,6 +7,9 @@
   export let id = 'library-search';
   export let name = id;
 
+  type ResultGroup = { label: string; href: string; items: EntityRef[] };
+  type ResultEntry = { group: ResultGroup; item: EntityRef; href: string; optionId: string };
+
   let query = '';
   let results: SearchResults | null = null;
   let open = false;
@@ -14,12 +17,10 @@
   let timer: number | undefined;
   let controller: AbortController | null = null;
   let requestId = 0;
+  let activeIndex = -1;
+  let shellElement: HTMLDivElement | null = null;
 
-  onDestroy(() => {
-    if (timer) window.clearTimeout(timer);
-    controller?.abort();
-  });
-
+  $: resultsId = `${id}-results`;
   $: groups = results
     ? [
         { label: 'Tracks', href: 'track', items: results.tracks },
@@ -27,10 +28,23 @@
         { label: 'Albums', href: 'album', items: results.albums },
       ].filter((group) => group.items.length > 0)
     : [];
+  $: optionEntries = resultEntries(groups);
+  $: activeId = open && activeIndex >= 0 ? optionEntries[activeIndex]?.optionId : undefined;
+  $: if (!open || optionEntries.length === 0) {
+    activeIndex = -1;
+  } else if (activeIndex >= optionEntries.length) {
+    activeIndex = optionEntries.length - 1;
+  }
+
+  onDestroy(() => {
+    if (timer) window.clearTimeout(timer);
+    controller?.abort();
+  });
 
   function scheduleSearch() {
     if (timer) window.clearTimeout(timer);
     const value = query.trim();
+    activeIndex = -1;
     if (value.length < 2) {
       requestId += 1;
       controller?.abort();
@@ -61,31 +75,104 @@
   function resultHref(group: { href: string }, item: EntityRef) {
     return `/${group.href}/${item.id}`;
   }
+
+  function resultEntries(inputGroups: ResultGroup[]): ResultEntry[] {
+    return inputGroups.flatMap((group) => group.items.map((item, index) => ({
+      group,
+      item,
+      href: resultHref(group, item),
+      optionId: `${id}-${group.href}-${item.id}-${index}`,
+    })));
+  }
+
+  function openResults() {
+    if (results || query.trim().length >= 2) open = true;
+  }
+
+  function closeResults() {
+    open = false;
+    activeIndex = -1;
+  }
+
+  function navigateTo(entry: ResultEntry | undefined) {
+    if (!entry) return;
+    closeResults();
+    window.location.assign(entry.href);
+  }
+
+  function handleKeyDown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      if (open) event.preventDefault();
+      closeResults();
+      return;
+    }
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      openResults();
+      if (optionEntries.length > 0) activeIndex = (activeIndex + 1) % optionEntries.length;
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      openResults();
+      if (optionEntries.length > 0) activeIndex = activeIndex <= 0 ? optionEntries.length - 1 : activeIndex - 1;
+      return;
+    }
+
+    if (event.key === 'Enter' && open && activeIndex >= 0) {
+      event.preventDefault();
+      navigateTo(optionEntries[activeIndex]);
+    }
+  }
+
+  function handleFocusOut() {
+    window.setTimeout(() => {
+      if (!shellElement?.contains(document.activeElement)) closeResults();
+    }, 0);
+  }
 </script>
 
-<div class="search-shell" onfocusout={() => window.setTimeout(() => (open = false), 120)}>
+<div class="search-shell" bind:this={shellElement} onfocusout={handleFocusOut}>
   <Search class="search-icon" aria-hidden="true" />
   <input
+    role="combobox"
     id={id}
     name={name}
     bind:value={query}
     oninput={scheduleSearch}
-    onfocus={() => (open = !!results || query.trim().length >= 2)}
+    onfocus={openResults}
+    onkeydown={handleKeyDown}
     placeholder="Search library"
     aria-label="Search tracks, artists, albums"
+    aria-autocomplete="list"
+    aria-expanded={open}
+    aria-controls={resultsId}
+    aria-activedescendant={activeId}
   />
   {#if open}
-    <div class="results">
+    <div class="results" id={resultsId} role="listbox" aria-label="Search results">
       {#if loading}
-        <p>Searching…</p>
+        <p role="status" aria-live="polite">Searching…</p>
       {:else if groups.length === 0}
-        <p>No matches.</p>
+        <p role="status">No matches.</p>
       {:else}
         {#each groups as group}
-          <section>
-            <strong>{group.label}</strong>
+          <section role="group" aria-label={group.label}>
+            <strong aria-hidden="true">{group.label}</strong>
             {#each group.items as item}
-              <a href={resultHref(group, item)}>{item.name}</a>
+              {@const entryIndex = optionEntries.findIndex((entry) => entry.group === group && entry.item.id === item.id)}
+              {@const entry = optionEntries[entryIndex]}
+              <a
+                id={entry.optionId}
+                role="option"
+                aria-selected={activeIndex === entryIndex}
+                href={entry.href}
+                onmouseenter={() => (activeIndex = entryIndex)}
+                onfocus={() => (activeIndex = entryIndex)}
+                onclick={closeResults}
+              >{item.name}</a>
             {/each}
           </section>
         {/each}
@@ -105,6 +192,12 @@
     border-radius: var(--radius-sm);
     padding: 0 0.55rem;
     background: color-mix(in srgb, var(--color-panel) 78%, transparent);
+    transition: border-color 140ms ease, background 140ms ease;
+  }
+
+  .search-shell:focus-within {
+    border-color: color-mix(in srgb, var(--color-primary) 62%, var(--color-border));
+    background: var(--color-panel);
   }
 
   :global(.search-icon) {
@@ -133,7 +226,7 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     padding: 0.65rem;
-    background: color-mix(in srgb, var(--color-bg-elevated) 96%, black);
+    background: color-mix(in srgb, var(--color-bg-elevated) 96%, var(--color-bg));
     box-shadow: var(--shadow-card);
   }
 
@@ -162,7 +255,8 @@
     white-space: nowrap;
   }
 
-  a:hover {
+  a:hover,
+  a[aria-selected="true"] {
     background: var(--color-panel-2);
   }
 
@@ -183,6 +277,19 @@
       right: auto;
       width: calc(100vw - (2 * var(--space-page)));
       max-height: min(28rem, 68vh);
+    }
+  }
+
+  @media (pointer: coarse) {
+    input {
+      min-height: 2.75rem;
+      font-size: 1rem;
+    }
+
+    a,
+    p {
+      min-height: 2.75rem;
+      padding-block: 0.7rem;
     }
   }
 </style>

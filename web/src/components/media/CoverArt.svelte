@@ -39,7 +39,7 @@
     border: 1px solid color-mix(in srgb, var(--color-border) 86%, transparent);
     border-radius: var(--radius-xs);
     background: var(--color-panel-2);
-    box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 14px 30px rgb(0 0 0 / 0.28);
+    box-shadow: 0 1px 0 oklch(0.98 0.01 85 / 0.04) inset, 0 14px 30px oklch(0.08 0.012 255 / 0.28);
     color: var(--color-text);
     text-decoration: none;
     transform: translateZ(0);

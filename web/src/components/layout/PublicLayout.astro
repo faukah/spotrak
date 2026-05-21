@@ -37,7 +37,7 @@ const navItems = nav.map(([label, href]) => ({ label, href, active: isActive(hre
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="generator" content={Astro.generator} />
-    <meta name="theme-color" content="#eeece3" />
+    <meta name="theme-color" content="oklch(0.94 0.01 85)" />
     <meta name="referrer" content="strict-origin" />
     <ThemeScript />
     <title>{title}</title>
@@ -56,7 +56,7 @@ const navItems = nav.map(([label, href]) => ({ label, href, active: isActive(hre
       <div class="site-controls desktop-controls">
         <ThemeToggle client:load />
       </div>
-      <MobileMenu navItems={navItems} menuId="public-mobile-menu" client:load />
+      <MobileMenu navItems={navItems} menuId="public-mobile-menu" client:media="(max-width: 760px)" />
     </header>
     <main class="page">
       <slot />
