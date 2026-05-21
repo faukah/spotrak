@@ -1,7 +1,7 @@
 <script lang="ts">
   import { scaleBand } from 'd3-scale';
   import { BarChart } from 'layerchart';
-  import { cubicInOut } from 'svelte/easing';
+  import { quintOut } from 'svelte/easing';
   import { bandTickStride } from '../../lib/charts/ticks';
   import * as Card from '../ui/card';
   import * as Chart from '../ui/chart';
@@ -170,7 +170,7 @@
                 stroke: 'none',
                 strokeWidth: 0,
                 rounded: 'all',
-                motion: { type: 'tween', duration: 500, easing: cubicInOut },
+                motion: { type: 'tween', duration: 220, easing: quintOut },
               },
               xAxis: { ticks: xTickStride },
               yAxis: { format: formatAxisValue, ticks: 4 },

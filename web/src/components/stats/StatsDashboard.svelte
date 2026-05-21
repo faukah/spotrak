@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { flip } from 'svelte/animate';
+  import { quintOut } from 'svelte/easing';
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
+  import { fade } from 'svelte/transition';
   import { apiFetch } from '../../lib/api/client';
   import type {
     AlbumReleaseYearsStats,
@@ -46,6 +49,26 @@
     value: number;
     rawLabel?: string;
   };
+  type StatsPanelKey =
+    | 'summary'
+    | 'artistDistribution'
+    | 'topArtists'
+    | 'dayDistribution'
+    | 'hourArtists'
+    | 'bucketMetrics'
+    | 'releaseYear'
+    | 'featureAverage';
+
+  const STATS_PANEL_KEYS: StatsPanelKey[] = [
+    'summary',
+    'artistDistribution',
+    'topArtists',
+    'dayDistribution',
+    'hourArtists',
+    'bucketMetrics',
+    'releaseYear',
+    'featureAverage',
+  ];
 
   export let apiPrefix = '';
   export let pagePrefix = '';
@@ -71,6 +94,9 @@
   let error: string | null = null;
   let requestId = 0;
   let unsubscribeRange: (() => void) | undefined;
+  let stopReducedMotionWatch: (() => void) | undefined;
+  let prefersReducedMotion = false;
+  let loadingSections = panelLoadingState(true);
   let lastRangeKey = statsRangeSelectionKey(activeRange);
 
   $: timelineSplit = splitForRange(activeRange.range);
@@ -124,6 +150,7 @@
   ];
 
   onMount(() => {
+    stopReducedMotionWatch = watchReducedMotion();
     activeRange = get(selectedStatsRange);
     lastRangeKey = statsRangeSelectionKey(activeRange);
     void loadStats();
@@ -131,42 +158,35 @@
     unsubscribeRange = selectedStatsRange.subscribe((selection) => {
       const key = statsRangeSelectionKey(selection);
       if (key === lastRangeKey) return;
-      activeRange = selection;
       lastRangeKey = key;
-      void loadStats();
+      void loadStats(selection);
     });
 
     return () => {
       unsubscribeRange?.();
+      stopReducedMotionWatch?.();
       requestId += 1;
     };
   });
 
-  async function loadStats() {
+  async function loadStats(range: StatsRangeSelection = activeRange) {
     const request = ++requestId;
-    const range = activeRange;
     const split = splitForRange(range.range);
     const query = statsRangeQuery(range);
-    loading = summary === null;
-    refreshing = summary !== null;
+    const initialLoad = summary === null;
+    loading = initialLoad;
+    refreshing = !initialLoad;
+    if (initialLoad) {
+      activeRange = range;
+      loadingSections = panelLoadingState(true);
+    }
     error = null;
 
     try {
       const nextDashboard = await apiFetch<StatsDashboardResponse>(statsPath('/stats/dashboard', query, { split }));
 
       if (request !== requestId) return;
-      availableYears = nextDashboard.available_years;
-      summary = nextDashboard.summary;
-      topArtists = nextDashboard.top_artists;
-      artistDistributionRows = nextDashboard.artist_distribution;
-      hours = nextDashboard.hours;
-      hourlyArtists = nextDashboard.hourly_artists;
-      timeline = nextDashboard.timeline;
-      diversity = nextDashboard.diversity;
-      releaseYears = nextDashboard.release_years;
-      featureAverage = nextDashboard.feature_average;
-      featureTimeline = nextDashboard.feature_timeline;
-      hourFormat = nextDashboard.hour_format;
+      applyDashboard(nextDashboard, range);
     } catch (err) {
       if (request !== requestId) return;
       error = err instanceof Error ? err.message : 'Unable to load stats';
@@ -176,6 +196,41 @@
         refreshing = false;
       }
     }
+  }
+
+  function applyDashboard(nextDashboard: StatsDashboardResponse, range: StatsRangeSelection) {
+    activeRange = range;
+    availableYears = nextDashboard.available_years;
+    summary = nextDashboard.summary;
+    topArtists = nextDashboard.top_artists;
+    artistDistributionRows = nextDashboard.artist_distribution;
+    hours = nextDashboard.hours;
+    hourlyArtists = nextDashboard.hourly_artists;
+    timeline = nextDashboard.timeline;
+    diversity = nextDashboard.diversity;
+    releaseYears = nextDashboard.release_years;
+    featureAverage = nextDashboard.feature_average;
+    featureTimeline = nextDashboard.feature_timeline;
+    hourFormat = nextDashboard.hour_format;
+    loadingSections = panelLoadingState(false);
+  }
+
+  function panelLoadingState(value: boolean): Record<StatsPanelKey, boolean> {
+    return Object.fromEntries(STATS_PANEL_KEYS.map((key) => [key, value])) as Record<StatsPanelKey, boolean>;
+  }
+
+  function watchReducedMotion(): () => void {
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const update = () => {
+      prefersReducedMotion = query.matches;
+    };
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }
+
+  function motionDuration(duration: number): number {
+    return prefersReducedMotion ? 1 : duration;
   }
 
   function statsPath(path: string, query: string, extra: Record<string, string | number | boolean> = {}): string {
@@ -380,80 +435,157 @@
     <StatsRangePicker {availableYears} ariaLabel="Choose stats range" />
   </div>
 
-  {#if loading}
-    <div class="stats-skeleton-grid" aria-live="polite">
-      {#each Array(8) as _, index (index)}
-        <div class="skeleton stats-skeleton"></div>
-      {/each}
-    </div>
-  {:else if error}
+  {#if error && summary === null}
     <Card.Root>
       <Card.Content><p class="error">{error}</p></Card.Content>
     </Card.Root>
   {:else}
-    {#if refreshing}<p class="refresh-note" aria-live="polite">Refreshing {activeRangeLabel}…</p>{/if}
+    {#if error}
+      <p class="error" aria-live="polite">{error}</p>
+    {/if}
 
-    <section class="stat-rail" aria-label="Selected range summary">
-      {#each rangeSummary as item (item.label)}
-        <article>
-          <span>{item.label}</span>
-          <strong>{item.value}</strong>
-          <small>{item.detail}</small>
-        </article>
-      {/each}
+    <section class="stat-rail stats-section-reveal" aria-label="Selected range summary" aria-busy={loadingSections.summary}>
+      {#if loadingSections.summary}
+        {#each Array(5) as _, index (index)}
+          <article class="stat-rail-skeleton" style={`--i: ${index};`}>
+            <span class="skeleton skeleton-line short"></span>
+            <strong class="skeleton skeleton-line value"></strong>
+            <small class="skeleton skeleton-line"></small>
+          </article>
+        {/each}
+      {:else}
+        {#each rangeSummary as item, index (item.label)}
+          <article style={`--i: ${index};`} in:fade={{ duration: motionDuration(120) }}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+            <small>{item.detail}</small>
+          </article>
+        {/each}
+      {/if}
     </section>
 
     <div class="stats-grid">
-      <StatsArtistDistributionChart
-        className="span-8"
-        rows={artistDistributionRows}
-        {bucketKeys}
-        {timelineDescription}
-        {pagePrefix}
-        formatBucketLabel={formatBucketLabel}
-      />
+      {#if loadingSections.artistDistribution}
+        <div class="stats-panel-skeleton stats-card-motion span-8" style="--i: 1;" aria-hidden="true">
+          <div class="skeleton skeleton-line title"></div>
+          <div class="skeleton skeleton-chart"></div>
+        </div>
+      {:else}
+        <div class="stats-card-motion span-8" style="--i: 1;">
+          <StatsArtistDistributionChart
+            rows={artistDistributionRows}
+            {bucketKeys}
+            {timelineDescription}
+            {pagePrefix}
+            formatBucketLabel={formatBucketLabel}
+          />
+        </div>
+      {/if}
 
-      <Card.Root class="stats-card span-4 top-artists-card">
-        <Card.Header>
-          <Card.Description>ranked by listens</Card.Description>
-          <Card.Title>Top artists</Card.Title>
-        </Card.Header>
-        <Card.Content>
-          {#if topArtists.length === 0}
-            <p class="state">No artist data for this range.</p>
-          {:else}
-            <ol class="rank-bars">
-              {#each topArtists as artist, index (artist.id)}
-                <li style={`--bar: ${barPercent(artist.count, topArtistMax)}; --swatch: ${chartColor(index)};`}>
-                  <span class="rank">{String(index + 1).padStart(2, '0')}</span>
-                  <CoverArt src={directImageUrl(artist)} name={artist.name} href={artistTransitionHref(artist.id, `stats-top-artists-${index}`)} size="xs" transitionName={artistTransition(artist.id, `stats-top-artists-${index}`)} />
-                  <a class="artist-name" href={artistHref(artist.id)} title={artist.name}>
-                    <strong>{artist.name}</strong>
-                    <small>{formatListensTooltip(artist.count)}</small>
-                  </a>
-                  <span class="rank-track" aria-hidden="true"><span></span></span>
-                </li>
-              {/each}
-            </ol>
-            <table class="sr-only">
-              <caption>Top artists by listens</caption>
-              <thead><tr><th scope="col">Artist</th><th scope="col">Listens</th></tr></thead>
-              <tbody>
-                {#each topArtists as artist (artist.id)}
-                  <tr><td>{artist.name}</td><td>{artist.count}</td></tr>
+      {#if loadingSections.topArtists}
+        <div class="stats-panel-skeleton stats-card-motion span-4 compact" style="--i: 2;" aria-hidden="true">
+          <div class="skeleton skeleton-line title"></div>
+          {#each Array(8) as _, index (index)}
+            <div class="skeleton skeleton-line" style={`--i: ${index};`}></div>
+          {/each}
+        </div>
+      {:else}
+        <Card.Root class="stats-card span-4 top-artists-card stats-card-motion" style="--i: 2;">
+          <Card.Header>
+            <Card.Description>ranked by listens</Card.Description>
+            <Card.Title>Top artists</Card.Title>
+          </Card.Header>
+          <Card.Content>
+            {#if topArtists.length === 0}
+              <p class="state">No artist data for this range.</p>
+            {:else}
+              <ol class="rank-bars">
+                {#each topArtists as artist, index (artist.id)}
+                  <li
+                    animate:flip={{ duration: motionDuration(220), easing: quintOut }}
+                    in:fade={{ duration: motionDuration(120) }}
+                    out:fade={{ duration: motionDuration(80) }}
+                    style={`--bar: ${barPercent(artist.count, topArtistMax)}; --swatch: ${chartColor(index)};`}
+                  >
+                    <span class="rank">{String(index + 1).padStart(2, '0')}</span>
+                    <CoverArt src={directImageUrl(artist)} name={artist.name} href={artistTransitionHref(artist.id, `stats-top-artists-${index}`)} size="xs" transitionName={artistTransition(artist.id, `stats-top-artists-${index}`)} />
+                    <a class="artist-name" href={artistHref(artist.id)} title={artist.name}>
+                      <strong>{artist.name}</strong>
+                      <small>{formatListensTooltip(artist.count)}</small>
+                    </a>
+                    <span class="rank-track" aria-hidden="true"><span></span></span>
+                  </li>
                 {/each}
-              </tbody>
-            </table>
-          {/if}
-        </Card.Content>
-      </Card.Root>
+              </ol>
+              <table class="sr-only">
+                <caption>Top artists by listens</caption>
+                <thead><tr><th scope="col">Artist</th><th scope="col">Listens</th></tr></thead>
+                <tbody>
+                  {#each topArtists as artist (artist.id)}
+                    <tr><td>{artist.name}</td><td>{artist.count}</td></tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
+          </Card.Content>
+        </Card.Root>
+      {/if}
 
-      <StatsDayDistributionChart points={hours} {hourFormat} className="span-8" />
-      <StatsHourArtistHeatmap artists={hourlyArtists} {hours} {hourFormat} {pagePrefix} className="span-4" />
+      {#if loadingSections.dayDistribution}
+        <div class="stats-panel-skeleton stats-card-motion span-8" style="--i: 3;" aria-hidden="true">
+          <div class="skeleton skeleton-line title"></div>
+          <div class="skeleton skeleton-chart short-chart"></div>
+          <div class="skeleton skeleton-chart short-chart"></div>
+        </div>
+      {:else}
+        <div class="stats-card-motion span-8" style="--i: 3;">
+          <StatsDayDistributionChart points={hours} {hourFormat} />
+        </div>
+      {/if}
 
-      <StatsBucketMetricsChart className="span-12" title="Bucket metrics" description={timelineDescription} metrics={bucketMetrics} />
-      <StatsMetricChart className="span-6" title="Average release year" description="listen-weighted by bucket" points={releaseYearPoints} valueLabel="Average release year" color={chartColor(3)} kind="line" formatValue={formatReleaseYearValue} formatAxisValue={formatReleaseYearAxis} emptyLabel="No release year data for this range." zeroBased={false} />
-      <StatsMetricChart className="span-6" title="Average features per track" description="distinct tracks by bucket" points={featurePoints} valueLabel="Average features" color={chartColor(4)} kind="line" formatValue={formatFeatureValue} emptyLabel="No feature data for this range." zeroBased={false} />
+      {#if loadingSections.hourArtists}
+        <div class="stats-panel-skeleton stats-card-motion span-4 compact" style="--i: 4;" aria-hidden="true">
+          <div class="skeleton skeleton-line title"></div>
+          <div class="skeleton skeleton-heatmap"></div>
+        </div>
+      {:else}
+        <div class="stats-card-motion span-4" style="--i: 4;">
+          <StatsHourArtistHeatmap artists={hourlyArtists} {hours} {hourFormat} {pagePrefix} />
+        </div>
+      {/if}
+
+      {#if loadingSections.bucketMetrics}
+        <div class="stats-panel-skeleton stats-card-motion span-12" style="--i: 5;" aria-hidden="true">
+          <div class="skeleton skeleton-line title"></div>
+          <div class="skeleton skeleton-chart"></div>
+        </div>
+      {:else}
+        <div class="stats-card-motion span-12" style="--i: 5;">
+          <StatsBucketMetricsChart title="Bucket metrics" description={timelineDescription} metrics={bucketMetrics} />
+        </div>
+      {/if}
+
+      {#if loadingSections.releaseYear}
+        <div class="stats-panel-skeleton stats-card-motion span-6 compact" style="--i: 6;" aria-hidden="true">
+          <div class="skeleton skeleton-line title"></div>
+          <div class="skeleton skeleton-chart compact-chart"></div>
+        </div>
+      {:else}
+        <div class="stats-card-motion span-6" style="--i: 6;">
+          <StatsMetricChart title="Average release year" description="listen-weighted by bucket" points={releaseYearPoints} valueLabel="Average release year" color={chartColor(3)} kind="line" formatValue={formatReleaseYearValue} formatAxisValue={formatReleaseYearAxis} emptyLabel="No release year data for this range." zeroBased={false} />
+        </div>
+      {/if}
+
+      {#if loadingSections.featureAverage}
+        <div class="stats-panel-skeleton stats-card-motion span-6 compact" style="--i: 7;" aria-hidden="true">
+          <div class="skeleton skeleton-line title"></div>
+          <div class="skeleton skeleton-chart compact-chart"></div>
+        </div>
+      {:else}
+        <div class="stats-card-motion span-6" style="--i: 7;">
+          <StatsMetricChart title="Average features per track" description="distinct tracks by bucket" points={featurePoints} valueLabel="Average features" color={chartColor(4)} kind="line" formatValue={formatFeatureValue} emptyLabel="No feature data for this range." zeroBased={false} />
+        </div>
+      {/if}
     </div>
   {/if}
 </section>
@@ -471,26 +603,10 @@
     font-size: clamp(1.7rem, 2.8vw, 2.18rem);
   }
 
-  .refresh-note {
-    margin: -0.25rem 0;
-    color: var(--color-muted);
-    font-size: 0.82rem;
-  }
-
-  .stats-skeleton-grid,
   .stat-rail,
   .stats-grid {
     display: grid;
     gap: 0.65rem;
-  }
-
-  .stats-skeleton-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .stats-skeleton {
-    min-height: 14rem;
-    border-radius: var(--radius-lg);
   }
 
   .stat-rail {
@@ -538,6 +654,21 @@
     line-height: 1;
   }
 
+  .stat-rail-skeleton .skeleton-line {
+    width: min(8rem, 78%);
+    height: 0.64rem;
+    border-radius: 999px;
+  }
+
+  .stat-rail-skeleton .skeleton-line.short {
+    width: min(6rem, 64%);
+  }
+
+  .stat-rail-skeleton .skeleton-line.value {
+    width: min(7.4rem, 72%);
+    height: 1.25rem;
+  }
+
   .stats-grid {
     grid-template-columns: repeat(12, minmax(0, 1fr));
     align-items: stretch;
@@ -547,6 +678,53 @@
   .stats-grid :global(.span-6) { grid-column: span 6; }
   .stats-grid :global(.span-8) { grid-column: span 8; }
   .stats-grid :global(.span-12) { grid-column: span 12; }
+
+  .stats-card-motion {
+    min-width: 0;
+    height: 100%;
+  }
+
+  .stats-panel-skeleton {
+    display: grid;
+    gap: 0.85rem;
+    min-height: 22rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 1rem;
+    background: color-mix(in srgb, var(--color-bg-elevated) 82%, transparent);
+  }
+
+  .stats-panel-skeleton.compact {
+    min-height: 18rem;
+  }
+
+  .skeleton-line {
+    width: 100%;
+    height: 0.82rem;
+    border-radius: 999px;
+  }
+
+  .skeleton-line.title {
+    width: min(13rem, 72%);
+  }
+
+  .skeleton-chart {
+    min-height: 17rem;
+    border-radius: var(--radius-md);
+  }
+
+  .skeleton-chart.short-chart {
+    min-height: 8rem;
+  }
+
+  .skeleton-chart.compact-chart {
+    min-height: 13rem;
+  }
+
+  .skeleton-heatmap {
+    min-height: 14rem;
+    border-radius: var(--radius-md);
+  }
 
   :global(.stats-card),
   .stats-grid :global(.stats-metric-card),
@@ -576,6 +754,7 @@
     grid-template-columns: 1.55rem auto minmax(0, 1fr) minmax(4rem, 7rem);
     gap: 0.45rem;
     align-items: center;
+    will-change: transform;
   }
 
   .rank {
@@ -626,6 +805,9 @@
     height: 100%;
     border-radius: inherit;
     background: var(--swatch);
+    transition:
+      width 220ms var(--ease-out-quart),
+      background 180ms var(--ease-out-quart);
   }
 
   .state {
@@ -639,8 +821,7 @@
   }
 
   @media (max-width: 1180px) {
-    .stat-rail,
-    .stats-skeleton-grid {
+    .stat-rail {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -669,10 +850,6 @@
     .stats-title {
       align-items: stretch;
       flex-direction: column;
-    }
-
-    .stats-skeleton-grid {
-      grid-template-columns: 1fr;
     }
 
     .stat-rail {
