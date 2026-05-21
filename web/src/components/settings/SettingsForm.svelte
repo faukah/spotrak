@@ -20,6 +20,9 @@
   let publicSharingEnabled = false;
   let publicToken: string | null = null;
   let sharingBusy = false;
+  let spotifyBusy = false;
+  let spotifyDisconnected = false;
+  let confirmDisconnect = false;
 
   $: publicLink = publicToken && typeof window !== 'undefined' ? `${window.location.origin}/public/${publicToken}` : '';
 
@@ -83,6 +86,21 @@
     if (!publicLink) return;
     await navigator.clipboard.writeText(publicLink);
     linkCopied = true;
+  }
+
+  async function disconnectSpotify() {
+    spotifyBusy = true;
+    spotifyDisconnected = false;
+    error = null;
+    try {
+      await apiFetch<void>('/users/me/spotify-connection', { method: 'DELETE' });
+      spotifyDisconnected = true;
+      confirmDisconnect = false;
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'Unable to disconnect Spotify';
+    } finally {
+      spotifyBusy = false;
+    }
   }
 
   async function submit() {
@@ -171,6 +189,27 @@
           <Button type="button" disabled={sharingBusy} onclick={enableOrRotateSharing}>{sharingBusy ? 'Enabling…' : 'Enable public sharing'}</Button>
         {/if}
       </section>
+
+      <section class="sharing">
+        <div>
+          <h3>Spotify connection</h3>
+          <p>Disconnecting deletes stored Spotify access and refresh tokens. Spotrak keeps existing history, but polling stops until you sign in with Spotify again.</p>
+        </div>
+        {#if spotifyDisconnected}<p class="success">Spotify disconnected. Sign in with Spotify again to reconnect.</p>{/if}
+        {#if confirmDisconnect && !spotifyDisconnected}
+          <p class="warning">This stops future Spotify polling until you reconnect. Existing history stays in Spotrak.</p>
+          <div class="actions">
+            <Button type="button" variant="destructive" disabled={spotifyBusy} onclick={disconnectSpotify}>
+              {spotifyBusy ? 'Disconnecting…' : 'Confirm disconnect'}
+            </Button>
+            <Button type="button" variant="outline" disabled={spotifyBusy} onclick={() => (confirmDisconnect = false)}>Cancel</Button>
+          </div>
+        {:else}
+          <Button type="button" variant="destructive" disabled={spotifyBusy || spotifyDisconnected} onclick={() => (confirmDisconnect = true)}>
+            {spotifyDisconnected ? 'Disconnected' : 'Disconnect Spotify'}
+          </Button>
+        {/if}
+      </section>
     {/if}
   </Card.Content>
 </Card.Root>
@@ -223,6 +262,10 @@
 
   .success {
     color: var(--color-primary);
+  }
+
+  .warning {
+    color: var(--color-muted);
   }
 
   .error {

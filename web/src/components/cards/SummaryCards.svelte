@@ -1,18 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { AreaChart } from 'layerchart';
   import { Activity, Clock3, Disc3, Library, Mic2 } from '@lucide/svelte';
   import { apiFetch } from '../../lib/api/client';
   import type { DiversityTimelinePoint, SummaryStats, TimelinePoint } from '../../lib/api/types';
   import { formatDuration } from '../../lib/date/format';
-  import { formatCountValue, formatDurationValue, formatLongDate, formatShortDate, tickStep } from '../../lib/charts/theme';
-  import { cn } from '../../lib/utils';
+  import { formatCountValue, formatDurationValue, formatLongDate, formatShortDate } from '../../lib/charts/theme';
   import * as Card from '../ui/card';
-  import * as Chart from '../ui/chart';
 
   type SummaryMode = 'plays' | 'time' | 'tracks' | 'artists' | 'albums';
   type ChartPoint = { label: string; value: number };
-  type TooltipItem = { color?: string };
 
   export let apiPrefix = '';
 
@@ -35,23 +31,20 @@
       ]
     : [];
 
+  const timelineWidth = 720;
+  const timelineHeight = 300;
+  const timelinePadding = { top: 18, right: 16, bottom: 42, left: 46 };
+
   $: activeLabel = cards.find((card) => card.key === active)?.label ?? 'plays';
-  $: timelineConfig = {
-    value: {
-      label: activeLabel,
-      color: active === 'time' ? 'var(--chart-2)' : 'var(--chart-1)',
-    },
-  } satisfies Chart.ChartConfig;
-  $: timelineSeries = [
-    {
-      key: 'value',
-      label: activeLabel,
-      value: 'value',
-      color: timelineConfig.value.color,
-    },
-  ];
-  $: chartClass = cn('chart', (chartLoading || chartError || points.length === 0) && 'dimmed');
-  $: xTickStep = tickStep(points.length, 6);
+  $: timelineColor = active === 'time' ? 'var(--chart-2)' : 'var(--chart-1)';
+  $: chartDimmed = chartLoading || chartError || points.length === 0;
+  $: timelinePlotWidth = timelineWidth - timelinePadding.left - timelinePadding.right;
+  $: timelinePlotHeight = timelineHeight - timelinePadding.top - timelinePadding.bottom;
+  $: timelineMax = Math.max(1, ...points.map((point) => point.value));
+  $: xTickStep = Math.max(1, Math.ceil(points.length / 6));
+  $: yTicks = [0, Math.ceil(timelineMax / 2), Math.ceil(timelineMax)];
+  $: timelineLinePath = linePath(points);
+  $: timelineAreaPath = areaPath(points);
 
   onMount(() => {
     void load();
@@ -114,8 +107,30 @@
     return active === 'time' ? formatted : `${formatted} ${activeLabel}`;
   }
 
-  function tooltipColor(item: TooltipItem): string {
-    return item.color ?? 'currentColor';
+  function pointX(index: number): number {
+    const denominator = Math.max(1, points.length - 1);
+    return timelinePadding.left + (index / denominator) * timelinePlotWidth;
+  }
+
+  function pointY(value: number): number {
+    return timelinePadding.top + timelinePlotHeight - (value / timelineMax) * timelinePlotHeight;
+  }
+
+  function tickY(value: number): number {
+    return pointY(value);
+  }
+
+  function linePath(input: ChartPoint[]): string {
+    if (input.length === 0) return '';
+    return input.map((point, index) => `${index === 0 ? 'M' : 'L'} ${pointX(index)} ${pointY(point.value)}`).join(' ');
+  }
+
+  function areaPath(input: ChartPoint[]): string {
+    if (input.length === 0) return '';
+    const baseline = timelinePadding.top + timelinePlotHeight;
+    const firstX = pointX(0);
+    const lastX = pointX(input.length - 1);
+    return `M ${firstX} ${baseline} ${input.map((point, index) => `L ${pointX(index)} ${pointY(point.value)}`).join(' ')} L ${lastX} ${baseline} Z`;
   }
 </script>
 
@@ -147,39 +162,28 @@
       </Card.Header>
       <Card.Content>
         <div class="chart-frame">
-          <Chart.Container
-            config={timelineConfig}
-            class={chartClass}
-            role="img"
-            aria-label={`${activeLabel} over time area chart`}
-          >
-            <AreaChart
-              data={points}
-              x="label"
-              y="value"
-              yBaseline={0}
-              series={timelineSeries}
-              padding={{ left: 46, right: 16, top: 18, bottom: 42 }}
-              props={{
-                xAxis: { format: formatShortDate, ticks: xTickStep },
-                yAxis: { format: formatValue, tickSpacing: 72 },
-                area: { fillOpacity: 0.18 },
-                line: { strokeWidth: 2.4 },
-              }}
-            >
-              {#snippet tooltip()}
-                <Chart.Tooltip labelFormatter={formatLongDate}>
-                  {#snippet formatter({ value, name, item })}
-                    <div class="tooltip-row">
-                      <span class="tooltip-swatch" style:background={tooltipColor(item)}></span>
-                      <span class="tooltip-name">{name}</span>
-                      <span class="tooltip-value">{formatTooltipValue(value)}</span>
-                    </div>
-                  {/snippet}
-                </Chart.Tooltip>
-              {/snippet}
-            </AreaChart>
-          </Chart.Container>
+          <div class="chart" class:dimmed={chartDimmed} role="img" aria-label={`${activeLabel} over time area chart`} style={`--timeline-color: ${timelineColor};`}>
+            <svg viewBox={`0 0 ${timelineWidth} ${timelineHeight}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              {#each yTicks as tick}
+                <g>
+                  <line class="chart-grid-line" x1={timelinePadding.left} x2={timelineWidth - timelinePadding.right} y1={tickY(tick)} y2={tickY(tick)} />
+                  <text class="chart-axis-label" x={timelinePadding.left - 8} y={tickY(tick) + 4} text-anchor="end">{formatValue(tick)}</text>
+                </g>
+              {/each}
+              {#if timelineAreaPath}
+                <path class="chart-area" d={timelineAreaPath}></path>
+                <path class="chart-line" d={timelineLinePath}></path>
+              {/if}
+              {#each points as point, index}
+                {#if index % xTickStep === 0}
+                  <text class="chart-axis-label" x={pointX(index)} y={timelineHeight - 12} text-anchor="middle">{formatShortDate(point.label)}</text>
+                {/if}
+                <circle class="chart-point" cx={pointX(index)} cy={pointY(point.value)} r="3">
+                  <title>{formatLongDate(point.label)}: {formatTooltipValue(point.value)}</title>
+                </circle>
+              {/each}
+            </svg>
+          </div>
           <table class="sr-only">
             <caption>{activeLabel} timeline data</caption>
             <thead><tr><th scope="col">Date</th><th scope="col">Value</th></tr></thead>
@@ -271,15 +275,50 @@
     min-height: clamp(18rem, 32vw, 27rem);
   }
 
-  :global(.chart) {
+  .chart {
     width: 100%;
     min-height: clamp(18rem, 32vw, 27rem);
     opacity: 1;
     transition: opacity 140ms ease;
   }
 
-  :global(.chart.dimmed) {
+  .chart.dimmed {
     opacity: 0.22;
+  }
+
+  .chart svg {
+    width: 100%;
+    min-height: clamp(18rem, 32vw, 27rem);
+    overflow: visible;
+  }
+
+  .chart-grid-line {
+    stroke: color-mix(in srgb, var(--color-border) 70%, transparent);
+    stroke-width: 1;
+  }
+
+  .chart-axis-label {
+    fill: var(--color-muted);
+    font-size: 0.68rem;
+    font-weight: 760;
+  }
+
+  .chart-area {
+    fill: color-mix(in srgb, var(--timeline-color) 18%, transparent);
+  }
+
+  .chart-line {
+    fill: none;
+    stroke: var(--timeline-color);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2.4;
+  }
+
+  .chart-point {
+    fill: var(--timeline-color);
+    stroke: var(--color-bg-elevated);
+    stroke-width: 1.5;
   }
 
   .chart-overlay {
@@ -297,34 +336,6 @@
     color: var(--color-muted);
     font-size: 0.86rem;
     font-weight: 700;
-  }
-
-  .tooltip-row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 0.45rem;
-    align-items: center;
-    min-width: 11rem;
-  }
-
-  .tooltip-swatch {
-    width: 0.55rem;
-    height: 0.55rem;
-    border-radius: 999px;
-  }
-
-  .tooltip-name {
-    overflow: hidden;
-    color: var(--color-text);
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .tooltip-value {
-    color: var(--color-muted);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
   }
 
   .error,

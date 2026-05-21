@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Check, ChevronDown } from '@lucide/svelte';
-  import { BarChart } from 'layerchart';
   import { apiFetch } from '../../lib/api/client';
   import type {
     EntityStats,
@@ -14,16 +13,14 @@
     TopArtist,
     TopTrack,
   } from '../../lib/api/types';
-  import { chartColor, formatCountValue, formatDurationValue, numericValue, tickStep } from '../../lib/charts/theme';
+  import { chartColor, formatCountValue, formatDurationValue } from '../../lib/charts/theme';
   import { formatDateTime, formatDuration } from '../../lib/date/format';
   import { transitionHref, viewTransitionName } from '../../lib/images';
   import CoverArt from '../media/CoverArt.svelte';
   import { Button } from '../ui/button';
   import * as Card from '../ui/card';
-  import * as Chart from '../ui/chart';
 
   type Trend = { text: string; tone: 'up' | 'down' | 'flat' } | null;
-  type TooltipItem = { color?: string; key?: string };
 
   export let initialOverview: OverviewStatsResponse | null = null;
 
@@ -67,15 +64,13 @@
     comparison_label: 'yesterday',
   };
 
-  const hourChartConfig = {
-    plays: { label: 'plays', color: chartColor(0) },
-    minutes: { label: 'time', color: chartColor(1) },
-  } satisfies Chart.ChartConfig;
-
-  const hourChartSeries = [
-    { key: 'plays', label: hourChartConfig.plays.label, value: 'plays', color: hourChartConfig.plays.color },
-    { key: 'minutes', label: hourChartConfig.minutes.label, value: 'minutes', color: hourChartConfig.minutes.color },
-  ];
+  const hourChartWidth = 720;
+  const hourChartHeight = 260;
+  const hourChartPadding = { top: 16, right: 14, bottom: 34, left: 42 };
+  const hourChartColors = {
+    plays: chartColor(0),
+    minutes: chartColor(1),
+  };
 
   $: hourChartData = Array.from({ length: 24 }, (_, hour) => {
     const point = hours.find((item) => item.hour === hour);
@@ -85,7 +80,11 @@
       minutes: (point?.duration_ms ?? 0) / 60_000,
     };
   });
-  $: hourTickStep = tickStep(hourChartData.length, 6);
+  $: hourPlotWidth = hourChartWidth - hourChartPadding.left - hourChartPadding.right;
+  $: hourPlotHeight = hourChartHeight - hourChartPadding.top - hourChartPadding.bottom;
+  $: hourGroupWidth = hourPlotWidth / hourChartData.length;
+  $: maxHourValue = Math.max(1, ...hourChartData.flatMap((point) => [point.plays, point.minutes]));
+  $: hourChartTicks = [0, Math.ceil(maxHourValue / 2), Math.ceil(maxHourValue)];
   $: selectedRangeText = rangeLabel(rangeKey, selectedYear);
 
   onMount(() => {
@@ -268,23 +267,30 @@
     return viewTransitionName(artist.id, `overview-best-artist-${activeRange.range}-${artist.id}`);
   }
 
-  function formatHourAxis(value: unknown): string {
-    return String(value);
+  function hourGroupX(index: number): number {
+    return hourChartPadding.left + index * hourGroupWidth;
   }
 
-  function formatHourValue(value: unknown): string {
-    return formatCountValue(value);
+  function hourBarWidth(): number {
+    return Math.max(3, hourGroupWidth * 0.28);
   }
 
-  function formatHourTooltip(value: unknown, item: TooltipItem): string {
-    if (item.key === 'minutes') return formatDurationValue(numericValue(value) * 60_000);
+  function hourBarHeight(value: number): number {
+    return (value / maxHourValue) * hourPlotHeight;
+  }
+
+  function hourBarY(value: number): number {
+    return hourChartPadding.top + hourPlotHeight - hourBarHeight(value);
+  }
+
+  function hourTickY(value: number): number {
+    return hourChartPadding.top + hourPlotHeight - (value / maxHourValue) * hourPlotHeight;
+  }
+
+  function formatHourDataValue(value: number, key: 'plays' | 'minutes'): string {
+    if (key === 'minutes') return formatDurationValue(value * 60_000);
     return `${formatCountValue(value)} plays`;
   }
-
-  function tooltipColor(item: TooltipItem): string {
-    return item.color ?? 'currentColor';
-  }
-
 </script>
 
 <section class="overview-stack" aria-busy={refreshing}>
@@ -448,34 +454,38 @@
         {:else if !mounted}
           <div class="skeleton chart-loading" aria-hidden="true"></div>
         {:else}
-          <Chart.Container config={hourChartConfig} class="hour-chart" role="img" aria-label={`Listening distribution by local hour, ${hourFormat}-hour format`}>
-            <BarChart
-              data={hourChartData}
-              x="label"
-              yBaseline={0}
-              series={hourChartSeries}
-              seriesLayout="group"
-              bandPadding={0.24}
-              padding={{ left: 42, right: 14, top: 12, bottom: 34 }}
-              props={{
-                xAxis: { format: formatHourAxis, ticks: hourTickStep },
-                yAxis: { format: formatHourValue, tickSpacing: 52 },
-                tooltip: { item: { format: formatHourValue } },
-              }}
-            >
-              {#snippet tooltip()}
-                <Chart.Tooltip>
-                  {#snippet formatter({ value, name, item })}
-                    <div class="tooltip-row">
-                      <span class="tooltip-swatch" style:background={tooltipColor(item)}></span>
-                      <span class="tooltip-name">{name}</span>
-                      <span class="tooltip-value">{formatHourTooltip(value, item)}</span>
-                    </div>
-                  {/snippet}
-                </Chart.Tooltip>
-              {/snippet}
-            </BarChart>
-          </Chart.Container>
+          <div
+            class="hour-chart"
+            role="img"
+            aria-label={`Listening distribution by local hour, ${hourFormat}-hour format`}
+            style={`--hour-plays-color: ${hourChartColors.plays}; --hour-time-color: ${hourChartColors.minutes};`}
+          >
+            <svg viewBox={`0 0 ${hourChartWidth} ${hourChartHeight}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+              {#each hourChartTicks as tick}
+                <g>
+                  <line class="hour-grid-line" x1={hourChartPadding.left} x2={hourChartWidth - hourChartPadding.right} y1={hourTickY(tick)} y2={hourTickY(tick)} />
+                  <text class="hour-axis-label" x={hourChartPadding.left - 8} y={hourTickY(tick) + 4} text-anchor="end">{formatCountValue(tick)}</text>
+                </g>
+              {/each}
+              {#each hourChartData as point, index}
+                <g>
+                  <rect class="hour-bar plays" x={hourGroupX(index) + hourGroupWidth * 0.18} y={hourBarY(point.plays)} width={hourBarWidth()} height={hourBarHeight(point.plays)} rx="2" fill={hourChartColors.plays}>
+                    <title>{point.label}: {formatHourDataValue(point.plays, 'plays')}</title>
+                  </rect>
+                  <rect class="hour-bar minutes" x={hourGroupX(index) + hourGroupWidth * 0.54} y={hourBarY(point.minutes)} width={hourBarWidth()} height={hourBarHeight(point.minutes)} rx="2" fill={hourChartColors.minutes}>
+                    <title>{point.label}: {formatHourDataValue(point.minutes, 'minutes')}</title>
+                  </rect>
+                  {#if index % 4 === 0}
+                    <text class="hour-axis-label" x={hourGroupX(index) + hourGroupWidth * 0.5} y={hourChartHeight - 10} text-anchor="middle">{point.label}</text>
+                  {/if}
+                </g>
+              {/each}
+            </svg>
+            <div class="hour-legend" aria-hidden="true">
+              <span><i class="plays-key"></i> Plays</span>
+              <span><i class="time-key"></i> Time</span>
+            </div>
+          </div>
           <table class="sr-only">
             <caption>Hourly listening distribution data</caption>
             <thead><tr><th scope="col">Hour</th><th scope="col">Plays</th><th scope="col">Listening time in minutes</th></tr></thead>
@@ -725,37 +735,87 @@
     height: 100%;
   }
 
-  :global(.hour-chart) {
+  .hour-chart {
+    display: grid;
+    gap: 0.5rem;
     width: 100%;
     min-height: 15.75rem;
   }
 
-  .tooltip-row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 0.45rem;
-    align-items: center;
-    min-width: 11rem;
+  .hour-chart svg {
+    width: 100%;
+    min-height: 13.6rem;
+    overflow: visible;
   }
 
-  .tooltip-swatch {
-    width: 0.55rem;
-    height: 0.55rem;
+  .hour-grid-line {
+    stroke: color-mix(in srgb, var(--color-border) 68%, transparent);
+    stroke-width: 1;
+  }
+
+  .hour-axis-label {
+    fill: var(--color-muted);
+    font-size: 0.68rem;
+    font-weight: 760;
+  }
+
+  .hour-bar {
+    shape-rendering: crispEdges;
+  }
+
+  .hour-bar.plays {
+    fill: rgb(113 184 128);
+  }
+
+  .hour-bar.minutes {
+    fill: rgb(190 147 86);
+  }
+
+  .hour-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    color: var(--color-muted);
+    font-size: 0.76rem;
+    font-weight: 800;
+  }
+
+  .hour-legend span {
+    display: inline-flex;
+    gap: 0.32rem;
+    align-items: center;
+  }
+
+  .hour-legend i {
+    width: 0.5rem;
+    height: 0.5rem;
     border-radius: 999px;
   }
 
-  .tooltip-name {
-    overflow: hidden;
-    color: var(--color-text);
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .hour-legend i.plays-key {
+    background: rgb(113 184 128);
   }
 
-  .tooltip-value {
-    color: var(--color-muted);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
+  .hour-legend i.time-key {
+    background: rgb(190 147 86);
+  }
+
+  @supports (color: oklch(0.7 0.1 142)) {
+    .hour-bar.plays {
+      fill: var(--hour-plays-color);
+    }
+
+    .hour-bar.minutes {
+      fill: var(--hour-time-color);
+    }
+
+    .hour-legend i.plays-key {
+      background: var(--hour-plays-color);
+    }
+
+    .hour-legend i.time-key {
+      background: var(--hour-time-color);
+    }
   }
 
   .history-list {

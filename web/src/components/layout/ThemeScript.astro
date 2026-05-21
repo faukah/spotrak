@@ -2,17 +2,43 @@
 const script = `
 (() => {
   const key = 'spotrak.theme';
-  const value = window.localStorage.getItem(key);
-  const preference = value === 'light' || value === 'dark' ? value : 'follow';
-  const theme = preference === 'follow'
+  const colors = {
+    light: 'oklch(0.94 0.01 85)',
+    dark: 'oklch(0.145 0.012 255)',
+  };
+
+  const storedPreference = () => {
+    const value = window.localStorage.getItem(key);
+    return value === 'light' || value === 'dark' ? value : 'follow';
+  };
+
+  const resolvedTheme = (preference) => preference === 'follow'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : preference;
-  const root = document.documentElement;
-  root.dataset.theme = theme;
-  root.dataset.themePreference = preference;
-  root.style.colorScheme = theme;
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? 'oklch(0.145 0.012 255)' : 'oklch(0.94 0.01 85)');
+
+  const applyTheme = (targetDocument = document) => {
+    const preference = storedPreference();
+    const theme = resolvedTheme(preference);
+    const root = targetDocument.documentElement;
+    root.dataset.theme = theme;
+    root.dataset.themePreference = preference;
+    root.style.colorScheme = theme;
+    const meta = targetDocument.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', colors[theme]);
+    return theme;
+  };
+
+  applyTheme();
+
+  if (!window.__spotrakThemeTransitionGuard) {
+    window.__spotrakThemeTransitionGuard = true;
+    document.addEventListener('astro:before-swap', (event) => {
+      if (event.newDocument) applyTheme(event.newDocument);
+    });
+    document.addEventListener('astro:after-swap', () => {
+      applyTheme();
+    });
+  }
 })();
 `;
 ---
