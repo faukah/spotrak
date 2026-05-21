@@ -22,6 +22,9 @@ const SPOTIFY_ACCOUNTS: &str = "https://accounts.spotify.com";
 const SPOTIFY_API: &str = "https://api.spotify.com";
 const MAX_RETRY_AFTER_SECONDS: u64 = 60;
 const MAX_SPOTIFY_RETRIES: u32 = 3;
+const SPOTIFY_RATE_LIMIT_ADVISORY_LOCK: i64 = 7_764_786_970_019;
+const SPOTIFY_LAST_REQUEST_KEY: &str = "spotify_last_request_at";
+const SPOTIFY_BLOCKED_UNTIL_KEY: &str = "spotify_blocked_until";
 const SPOTIFY_AUTH_SCOPES: &str = "user-read-private user-read-recently-played";
 const REQUIRED_SPOTIFY_SCOPES: &[&str] = &["user-read-private", "user-read-recently-played"];
 
@@ -44,7 +47,8 @@ pub async fn exchange_code(
     code: &str,
     code_verifier: &str,
 ) -> Result<StoredSpotifyTokens> {
-    wait_for_spotify_slot(state).await?;
+    // OAuth login is user-initiated and happens once per login, so it must not
+    // sit behind the global Spotify catalog/import/poller limiter.
     state.metrics.inc_spotify_requests();
     let response = state
         .http
@@ -80,11 +84,13 @@ pub async fn refresh_token(state: &AppState, refresh_token: &str) -> Result<Stor
         ])
         .send()
         .await?;
-    parse_token_response(response, false).await
+    parse_token_response_with_global_cooldown(state, response, false).await
 }
 
 pub async fn me(state: &AppState, access_token: &str) -> Result<SpotifyProfile> {
-    spotify_get_json(state, &format!("{SPOTIFY_API}/v1/me"), access_token).await
+    // This is used during OAuth login to identify the account. Keep it outside
+    // the global limiter so a large import queue cannot block login completion.
+    spotify_get_json_without_limiter(state, &format!("{SPOTIFY_API}/v1/me"), access_token).await
 }
 
 pub async fn recently_played_after(
@@ -107,26 +113,24 @@ pub async fn recently_played_after(
     while let Some(page_url) = next {
         pages += 1;
         if pages > 10 {
-            break;
+            return Err(AppError::spotify(
+                "Spotify recently-played pagination exceeded the safety page limit",
+            ));
         }
 
-        let page =
-            match spotify_get_json::<SpotifyRecentlyPlayedResponse>(state, &page_url, access_token)
-                .await
-            {
-                Ok(page) => page,
-                Err(error) if is_spotify_status(&error, StatusCode::UNAUTHORIZED) => {
-                    return Err(error);
-                }
-                Err(error) if !items.is_empty() => {
-                    tracing::warn!(
-                        ?error,
-                        "returning partial Spotify recently-played page results"
-                    );
-                    break;
-                }
-                Err(error) => return Err(error),
-            };
+        let page = match spotify_get_json_without_limiter::<SpotifyRecentlyPlayedResponse>(
+            state,
+            &page_url,
+            access_token,
+        )
+        .await
+        {
+            Ok(page) => page,
+            Err(error) if is_spotify_status(&error, StatusCode::UNAUTHORIZED) => {
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
         if page.items.is_empty() {
             break;
         }
@@ -212,11 +216,44 @@ async fn spotify_get_json<T: DeserializeOwned>(
     spotify_send(state, || state.http.get(url).bearer_auth(access_token)).await
 }
 
+async fn spotify_get_json_without_limiter<T: DeserializeOwned>(
+    state: &AppState,
+    url: &str,
+    access_token: &str,
+) -> Result<T> {
+    spotify_send_without_limiter(state, || state.http.get(url).bearer_auth(access_token)).await
+}
+
 async fn spotify_send<T: DeserializeOwned>(
     state: &AppState,
     build: impl Fn() -> reqwest::RequestBuilder,
 ) -> Result<T> {
     spotify_send_allow_empty(state, build).await
+}
+
+async fn spotify_send_without_limiter<T: DeserializeOwned>(
+    state: &AppState,
+    build: impl Fn() -> reqwest::RequestBuilder,
+) -> Result<T> {
+    state.metrics.inc_spotify_requests();
+    let started_at = Instant::now();
+    let response = build().send().await?;
+    let elapsed_ms = started_at.elapsed().as_millis();
+    let status = response.status();
+    let url = response.url().to_string();
+    tracing::debug!(%status, %url, elapsed_ms, "Spotify unthrottled request completed");
+
+    if !status.is_success() {
+        state.metrics.inc_spotify_failures();
+        return Err(spotify_http_error(response).await);
+    }
+
+    if status == StatusCode::NO_CONTENT {
+        return serde_json::from_value(Value::Null)
+            .map_err(|err| AppError::internal(err.to_string()));
+    }
+
+    Ok(response.json::<T>().await?)
 }
 
 async fn spotify_send_allow_empty<T: DeserializeOwned>(
@@ -234,32 +271,38 @@ async fn spotify_send_allow_empty<T: DeserializeOwned>(
         let status = response.status();
         let url = response.url().to_string();
         tracing::debug!(%status, %url, elapsed_ms, attempt = attempts, "Spotify request completed");
-        if status == StatusCode::TOO_MANY_REQUESTS && attempts <= MAX_SPOTIFY_RETRIES {
+        if status == StatusCode::TOO_MANY_REQUESTS {
             let retry_after = retry_after_seconds(response.headers());
-            let sleep_seconds = retry_after.unwrap_or_else(|| spotify_backoff_seconds(attempts));
-            if sleep_seconds > MAX_RETRY_AFTER_SECONDS {
-                state.metrics.inc_spotify_failures();
+            let sleep_seconds = retry_after
+                .filter(|seconds| *seconds > 0)
+                .unwrap_or_else(|| spotify_backoff_seconds(attempts));
+            record_spotify_global_cooldown(state, sleep_seconds).await?;
+
+            if attempts <= MAX_SPOTIFY_RETRIES && sleep_seconds <= MAX_RETRY_AFTER_SECONDS {
                 tracing::warn!(
                     %url,
                     retry_after_seconds = retry_after.unwrap_or(0),
                     retry_after_present = retry_after.is_some(),
                     sleep_seconds,
-                    max_retry_after_seconds = MAX_RETRY_AFTER_SECONDS,
                     attempt = attempts,
-                    "Spotify rate limit Retry-After is too long; not sleeping the worker"
+                    "Spotify rate limit hit; respecting Retry-After or exponential backoff before retrying"
                 );
-                return Err(spotify_rate_limit_error(response, retry_after, sleep_seconds).await);
+                tokio::time::sleep(std::time::Duration::from_secs(sleep_seconds)).await;
+                continue;
             }
+
+            state.metrics.inc_spotify_failures();
             tracing::warn!(
                 %url,
                 retry_after_seconds = retry_after.unwrap_or(0),
                 retry_after_present = retry_after.is_some(),
                 sleep_seconds,
+                max_retry_after_seconds = MAX_RETRY_AFTER_SECONDS,
                 attempt = attempts,
-                "Spotify rate limit hit; respecting Retry-After or exponential backoff before retrying"
+                max_attempts = MAX_SPOTIFY_RETRIES,
+                "Spotify rate limit hit; relying on global cooldown before a later worker retry"
             );
-            tokio::time::sleep(std::time::Duration::from_secs(sleep_seconds)).await;
-            continue;
+            return Err(spotify_rate_limit_error(response, retry_after, sleep_seconds).await);
         }
 
         if !status.is_success() {
@@ -288,7 +331,7 @@ async fn wait_for_spotify_slot(state: &AppState) -> Result<()> {
         if next_allowed_at > now {
             let wait = next_allowed_at - now;
             tracing::debug!(
-                wait_ms = wait.as_millis(),
+                wait_secs = wait.as_secs(),
                 "waiting for local Spotify rate limiter slot"
             );
             tokio::time::sleep(wait).await;
@@ -297,54 +340,137 @@ async fn wait_for_spotify_slot(state: &AppState) -> Result<()> {
     }
 
     // Database guard second. This makes the spacing process-wide even if two backend
-    // instances or a restarted worker overlap. The transaction intentionally holds the
-    // advisory lock while sleeping so no other process can reserve the same slot.
-    let mut tx = state.db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock($1)")
-        .bind(7_764_786_970_019_i64)
-        .execute(&mut *tx)
-        .await?;
+    // instances or a restarted worker overlap. Long Spotify cooldown sleeps happen
+    // outside the transaction, then the advisory lock is reacquired before reserving.
+    loop {
+        let mut tx = state.db.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(SPOTIFY_RATE_LIMIT_ADVISORY_LOCK)
+            .execute(&mut *tx)
+            .await?;
 
-    let last_global = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
-        "SELECT value_ts FROM app_runtime_state WHERE key = 'spotify_last_request_at' FOR UPDATE",
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
-
-    if let Some(last_global) = last_global {
-        let chrono_delay =
-            ChronoDuration::from_std(delay).map_err(|err| AppError::internal(err.to_string()))?;
-        let next_global = last_global + chrono_delay;
         let now_global = Utc::now();
-        if next_global > now_global {
-            let wait = (next_global - now_global)
+        let blocked_until = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
+            "SELECT value_ts FROM app_runtime_state WHERE key = $1 FOR UPDATE",
+        )
+        .bind(SPOTIFY_BLOCKED_UNTIL_KEY)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+
+        if let Some(blocked_until) = blocked_until
+            && blocked_until > now_global
+        {
+            let wait = (blocked_until - now_global)
                 .to_std()
                 .map_err(|err| AppError::internal(err.to_string()))?;
-            tracing::debug!(
-                wait_ms = wait.as_millis(),
-                "waiting for global Spotify rate limiter slot"
+            tracing::warn!(
+              wait_secs = wait.as_secs(),
+                blocked_until = %blocked_until,
+                "waiting for global Spotify Retry-After cooldown"
             );
+            tx.commit().await?;
             tokio::time::sleep(wait).await;
+            continue;
         }
-    }
 
-    let reserved_at = Utc::now();
-    sqlx::query(
-        r#"
-        INSERT INTO app_runtime_state (key, value_ts, updated_at)
-        VALUES ('spotify_last_request_at', $1, now())
-        ON CONFLICT (key) DO UPDATE SET value_ts = EXCLUDED.value_ts, updated_at = now()
-        "#,
-    )
-    .bind(reserved_at)
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
+        let last_global = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
+            "SELECT value_ts FROM app_runtime_state WHERE key = $1 FOR UPDATE",
+        )
+        .bind(SPOTIFY_LAST_REQUEST_KEY)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+
+        if let Some(last_global) = last_global {
+            let chrono_delay = ChronoDuration::from_std(delay)
+                .map_err(|err| AppError::internal(err.to_string()))?;
+            let next_global = last_global + chrono_delay;
+            let now_global = Utc::now();
+            if next_global > now_global {
+                let wait = (next_global - now_global)
+                    .to_std()
+                    .map_err(|err| AppError::internal(err.to_string()))?;
+                tracing::debug!(
+                    wait_secs = wait.as_secs(),
+                    "waiting for global Spotify rate limiter slot"
+                );
+                tx.commit().await?;
+                tokio::time::sleep(wait).await;
+                continue;
+            }
+        }
+
+        let reserved_at = Utc::now();
+        sqlx::query(
+            r#"
+            INSERT INTO app_runtime_state (key, value_ts, updated_at)
+            VALUES ($1, $2, now())
+            ON CONFLICT (key) DO UPDATE SET value_ts = EXCLUDED.value_ts, updated_at = now()
+            "#,
+        )
+        .bind(SPOTIFY_LAST_REQUEST_KEY)
+        .bind(reserved_at)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        break;
+    }
 
     let mut last_request_at = state.spotify_limiter.lock().await;
     *last_request_at = Instant::now();
     Ok(())
+}
+
+async fn record_spotify_global_cooldown(state: &AppState, sleep_seconds: u64) -> Result<()> {
+    let cooldown = ChronoDuration::from_std(std::time::Duration::from_secs(sleep_seconds.max(1)))
+        .map_err(|err| AppError::internal(err.to_string()))?;
+    let blocked_until = Utc::now() + cooldown;
+
+    let mut tx = state.db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(SPOTIFY_RATE_LIMIT_ADVISORY_LOCK)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query(
+        r#"
+        INSERT INTO app_runtime_state (key, value_ts, updated_at)
+        VALUES ($1, $2, now())
+        ON CONFLICT (key) DO UPDATE SET
+          value_ts = GREATEST(
+            COALESCE(app_runtime_state.value_ts, '-infinity'::timestamptz),
+            EXCLUDED.value_ts
+          ),
+          updated_at = now()
+        "#,
+    )
+    .bind(SPOTIFY_BLOCKED_UNTIL_KEY)
+    .bind(blocked_until)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    tracing::warn!(
+        sleep_seconds,
+        blocked_until = %blocked_until,
+        "recorded global Spotify Retry-After cooldown"
+    );
+    Ok(())
+}
+
+async fn parse_token_response_with_global_cooldown(
+    state: &AppState,
+    response: reqwest::Response,
+    validate_scopes: bool,
+) -> Result<StoredSpotifyTokens> {
+    if response.status() == StatusCode::TOO_MANY_REQUESTS {
+        let retry_after = retry_after_seconds(response.headers());
+        let sleep_seconds = retry_after
+            .filter(|seconds| *seconds > 0)
+            .unwrap_or_else(|| spotify_backoff_seconds(1));
+        record_spotify_global_cooldown(state, sleep_seconds).await?;
+    }
+    parse_token_response(response, validate_scopes).await
 }
 
 async fn parse_token_response(

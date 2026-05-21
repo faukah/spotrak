@@ -340,6 +340,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/{token}/albums/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["album"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/albums/{id}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["album_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/artists/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["artist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/artists/{id}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["artist_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/{token}/history": {
         parameters: {
             query?: never;
@@ -364,6 +428,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["album_release_years"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/stats/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["dashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/stats/display-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["display_preferences"];
         put?: never;
         post?: never;
         delete?: never;
@@ -548,6 +644,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/{token}/tracks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["track"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/tracks/{id}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["track_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search": {
         parameters: {
             query?: never;
@@ -572,6 +700,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["album_release_years"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stats/dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["dashboard"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1333,6 +1477,24 @@ export interface components {
             preferred_stats_period?: string | null;
             timezone?: string | null;
         };
+        StatsDashboardResponse: {
+            artist_distribution: components["schemas"]["BucketedTopArtist"][];
+            available_years: number[];
+            diversity: components["schemas"]["DiversityTimelinePoint"][];
+            feature_average: components["schemas"]["FeatureAverageStats"];
+            feature_timeline: components["schemas"]["FeatureTimelinePoint"][];
+            hour_format: string;
+            hourly_artists: components["schemas"]["HourlyTopArtist"][];
+            hours: components["schemas"]["HourRepartitionPoint"][];
+            release_years: components["schemas"]["AlbumReleaseYearsStats"];
+            summary: components["schemas"]["SummaryStats"];
+            timeline: components["schemas"]["TimelinePoint"][];
+            timezone: string;
+            top_artists: components["schemas"]["TopArtist"][];
+        };
+        StatsDisplayPreferences: {
+            hour_format: string;
+        };
         StatsInterval: {
             /** Format: date-time */
             end?: string | null;
@@ -1787,7 +1949,9 @@ export interface operations {
     };
     spotify_start: {
         parameters: {
-            query?: never;
+            query?: {
+                next?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1882,13 +2046,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Queued full privacy import */
+            /** @description Queued full privacy imports */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportJobResponse"];
+                    "application/json": components["schemas"]["ImportJobsResponse"];
                 };
             };
         };
@@ -1920,13 +2084,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Queued privacy import */
+            /** @description Queued privacy imports */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImportJobResponse"];
+                    "application/json": components["schemas"]["ImportJobsResponse"];
                 };
             };
         };
@@ -2017,6 +2181,118 @@ export interface operations {
             };
         };
     };
+    album: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public album detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumDetail"];
+                };
+            };
+        };
+    };
+    album_stats: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public album stats */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityStats"];
+                };
+            };
+        };
+    };
+    artist: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public artist detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtistDetail"];
+                };
+            };
+        };
+    };
+    artist_stats: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public artist stats */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityStats"];
+                };
+            };
+        };
+    };
     history: {
         parameters: {
             query?: {
@@ -2077,6 +2353,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlbumReleaseYearsStats"];
+                };
+            };
+        };
+    };
+    dashboard: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public stats dashboard data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsDashboardResponse"];
+                };
+            };
+        };
+    };
+    display_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public stats display preferences */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsDisplayPreferences"];
                 };
             };
         };
@@ -2433,6 +2763,62 @@ export interface operations {
             };
         };
     };
+    track: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public track detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackDetail"];
+                };
+            };
+        };
+    };
+    track_stats: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public track stats */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EntityStats"];
+                };
+            };
+        };
+    };
     search_catalog: {
         parameters: {
             query: {
@@ -2481,6 +2867,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AlbumReleaseYearsStats"];
+                };
+            };
+        };
+    };
+    dashboard: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stats dashboard data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsDashboardResponse"];
                 };
             };
         };
@@ -2624,7 +3040,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Album plays by local hour */
+            /** @description Listening events by local hour; alias of the tracks endpoint */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2654,7 +3070,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Artist plays by local hour */
+            /** @description Listening events by local hour; alias of the tracks endpoint */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2684,7 +3100,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Track plays by local hour */
+            /** @description Listening events by local hour */
             200: {
                 headers: {
                     [name: string]: unknown;

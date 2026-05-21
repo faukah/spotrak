@@ -150,9 +150,7 @@ fn init_tracing(default_level: &str) {
 fn spawn_import_worker(state: AppState) {
     tracing::info!("starting import worker");
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
         loop {
-            interval.tick().await;
             let worker_state = state.clone();
             match tokio::spawn(async move {
                 crate::services::imports::process_queued_once(&worker_state).await
@@ -167,6 +165,7 @@ fn spawn_import_worker(state: AppState) {
                 Ok(Err(err)) => tracing::warn!(?err, "import worker failed"),
                 Err(err) => tracing::warn!(?err, "import worker panicked"),
             }
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     });
 }
@@ -174,9 +173,7 @@ fn spawn_import_worker(state: AppState) {
 fn spawn_artist_hydration_worker(state: AppState) {
     tracing::info!("starting Spotify artist metadata hydration worker");
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
         loop {
-            interval.tick().await;
             let worker_state = state.clone();
             match tokio::spawn(async move {
                 crate::services::artist_hydration::process_queued_once(&worker_state).await
@@ -190,15 +187,14 @@ fn spawn_artist_hydration_worker(state: AppState) {
                 Ok(Err(err)) => tracing::warn!(?err, "artist metadata hydration worker failed"),
                 Err(err) => tracing::warn!(?err, "artist metadata hydration worker panicked"),
             }
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
         }
     });
 }
 
 fn spawn_spotify_poller(state: AppState) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(120));
         loop {
-            interval.tick().await;
             let worker_state = state.clone();
             match tokio::spawn(
                 async move { crate::services::poller::poll_once(&worker_state).await },
@@ -209,6 +205,7 @@ fn spawn_spotify_poller(state: AppState) {
                 Ok(Err(err)) => tracing::warn!(?err, "Spotify poll failed"),
                 Err(err) => tracing::warn!(?err, "Spotify poller panicked"),
             }
+            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
         }
     });
 }

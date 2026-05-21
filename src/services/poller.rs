@@ -66,10 +66,10 @@ async fn poll_user(state: &AppState, user: User) -> Result<usize> {
 
 pub async fn valid_access_token(state: &AppState, user: &User) -> Result<String> {
     let refresh_at = Utc::now() + ChronoDuration::minutes(2);
-    if let (Some(access_token), Some(expires_at)) = (&user.access_token, user.token_expires_at) {
-        if expires_at > refresh_at {
-            return token_crypto::decrypt_spotify_token(&state.config, access_token);
-        }
+    if let (Some(access_token), Some(expires_at)) = (&user.access_token, user.token_expires_at)
+        && expires_at > refresh_at
+    {
+        return token_crypto::decrypt_spotify_token(&state.config, access_token);
     }
 
     refresh_access_token(state, user).await
@@ -95,14 +95,12 @@ async fn refresh_access_token_for_user_id(
             .await?
             .ok_or(AppError::Unauthorized)?;
 
-        if !force {
-            if let (Some(access_token), Some(expires_at)) =
+        if !force
+            && let (Some(access_token), Some(expires_at)) =
                 (&current.access_token, current.token_expires_at)
-            {
-                if expires_at > refresh_at {
-                    return token_crypto::decrypt_spotify_token(&state.config, access_token);
-                }
-            }
+            && expires_at > refresh_at
+        {
+            return token_crypto::decrypt_spotify_token(&state.config, access_token);
         }
 
         let original_refresh_token = current.refresh_token.clone();

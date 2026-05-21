@@ -1,9 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import { scaleUtc } from 'd3-scale';
-  import { curveMonotoneX } from 'd3-shape';
-  import { AreaChart } from 'layerchart';
   import { apiFetch } from '../../lib/api/client';
   import type {
     AlbumReleaseYearsStats,
@@ -13,12 +10,13 @@
     FeatureTimelinePoint,
     HourRepartitionPoint,
     HourlyTopArtist,
+    StatsDashboardResponse,
     StatsRangeKey,
     SummaryStats,
     TimelinePoint,
     TopArtist,
   } from '../../lib/api/types';
-  import { chartColor, formatCountValue, formatDurationValue, formatPercentValue, numericValue, tickStep } from '../../lib/charts/theme';
+  import { chartColor, formatCountValue, formatDurationValue, numericValue } from '../../lib/charts/theme';
   import { formatDuration } from '../../lib/date/format';
   import { directImageUrl, transitionHref, viewTransitionName } from '../../lib/images';
   import {
@@ -30,49 +28,30 @@
   } from '../../lib/stores/stats-range';
   import CoverArt from '../media/CoverArt.svelte';
   import * as Card from '../ui/card';
-  import * as Chart from '../ui/chart';
-  import StatsHourDistribution from './StatsHourDistribution.svelte';
-  import StatsLineChart from './StatsLineChart.svelte';
+  import StatsArtistDistributionChart from './StatsArtistDistributionChart.svelte';
+  import StatsBucketMetricsChart from './StatsBucketMetricsChart.svelte';
+  import StatsDayDistributionChart from './StatsDayDistributionChart.svelte';
+  import StatsHourArtistHeatmap from './StatsHourArtistHeatmap.svelte';
+  import StatsMetricChart from './StatsMetricChart.svelte';
   import StatsRangePicker from './StatsRangePicker.svelte';
 
   type TimeSplit = 'year' | 'month' | 'week' | 'day' | 'hour';
-  type DistributionEntity = {
-    id: string;
-    name: string;
-    image_url?: string | null;
-    total: number;
-    isOther: boolean;
-  };
-  type DistributionSegment = DistributionEntity & {
-    value: number;
-    percent: number;
-    color: string;
-  };
-  type DistributionBucket = {
-    bucket: string;
-    total: number;
-    segments: DistributionSegment[];
-  };
-  type HourArtistSlot = {
-    hour: number;
+  type SummaryItem = {
     label: string;
-    artist: HourlyTopArtist | null;
-    percent: number;
+    value: string;
+    detail: string;
   };
-  type DistributionDatum = {
-    bucket: string;
-    date: Date;
-    total: number;
-  } & Record<string, Date | string | number>;
-  type TooltipItem = { color?: string };
-  type TooltipPayloadValue = { value?: unknown };
+  type StatsMetricPoint = {
+    label: string;
+    value: number;
+    rawLabel?: string;
+  };
 
   export let apiPrefix = '';
   export let pagePrefix = '';
+  export let initialHourFormat: '12' | '24' = '24';
 
   const currentYear = new Date().getFullYear();
-  const DISTRIBUTION_ARTIST_LIMIT = 10;
-  const OTHER_ARTISTS_ID = '__other__';
 
   let activeRange: StatsRangeSelection = { range: 'all' };
   let availableYears: number[] = [currentYear];
@@ -86,6 +65,7 @@
   let releaseYears: AlbumReleaseYearsStats | null = null;
   let featureAverage: FeatureAverageStats | null = null;
   let featureTimeline: FeatureTimelinePoint[] = [];
+  let hourFormat: '12' | '24' = initialHourFormat;
   let loading = true;
   let refreshing = false;
   let error: string | null = null;
@@ -101,47 +81,51 @@
     ...artistDistributionRows.map((row) => row.bucket),
     ...timeline.map((point) => point.bucket),
     ...diversity.map((point) => point.bucket),
+    ...featureTimeline.map((point) => point.bucket),
   ]);
   $: timelineByBucket = new Map(timeline.map((point) => [point.bucket, point]));
   $: diversityByBucket = new Map(diversity.map((point) => [point.bucket, point]));
-  $: distributionEntities = buildDistributionEntities(artistDistributionRows);
-  $: distributionBuckets = buildDistributionBuckets(artistDistributionRows, distributionEntities, bucketKeys);
-  $: distributionChartBuckets = distributionBuckets.filter((bucket) => bucket.total > 0);
-  $: distributionChartData = buildDistributionChartData(distributionChartBuckets, distributionEntities);
-  $: distributionChartConfig = Object.fromEntries(
-    distributionEntities.map((entity, index) => [entity.id, { label: entity.name, color: distributionColor(index, entity) }]),
-  ) satisfies Chart.ChartConfig;
-  $: distributionSeries = distributionEntities.map((entity, index) => ({
-    key: entity.id,
-    label: entity.name,
-    value: entity.id,
-    color: distributionColor(index, entity),
-    props: distributionAreaProps(entity),
-  }));
-  $: areaChartWidth = Math.min(5600, Math.max(860, distributionChartData.length * areaPointWidth(timelineSplit)));
-  $: distributionTickCount = Math.min(8, Math.max(2, distributionChartData.length));
-  $: hourArtistSlots = buildHourArtistSlots(hourlyArtists);
-  $: songPoints = bucketKeys.map((bucket) => ({ label: bucket, value: timelineByBucket.get(bucket)?.count ?? 0 }));
-  $: timePoints = bucketKeys.map((bucket) => ({ label: bucket, value: timelineByBucket.get(bucket)?.duration_ms ?? 0 }));
-  $: uniqueArtistPoints = bucketKeys.map((bucket) => ({ label: bucket, value: diversityByBucket.get(bucket)?.unique_artists ?? 0 }));
+  $: listensPoints = bucketKeys.map((bucket) => metricPoint(bucket, timelineByBucket.get(bucket)?.count ?? 0));
+  $: timePoints = bucketKeys.map((bucket) => metricPoint(bucket, timelineByBucket.get(bucket)?.duration_ms ?? 0));
+  $: uniqueArtistPoints = bucketKeys.map((bucket) => metricPoint(bucket, diversityByBucket.get(bucket)?.unique_artists ?? 0));
   $: releaseYearPoints = diversity
     .filter((point) => point.average_release_year !== null && point.average_release_year !== undefined)
-    .map((point) => ({ label: point.bucket, value: point.average_release_year ?? 0 }));
-  $: featurePoints = featureTimeline.map((point) => ({ label: point.bucket, value: point.average_features_per_song }));
-  $: rangeSummary = summary
-    ? [
-        { label: 'songs', value: summary.total_listens.toLocaleString(), detail: activeRangeLabel },
-        { label: 'time', value: formatDuration(summary.total_duration_ms), detail: activeRangeLabel },
-        { label: 'artists', value: summary.unique_artists.toLocaleString(), detail: activeRangeLabel },
-        { label: 'avg release', value: formatReleaseYear(releaseYears?.average_release_year), detail: 'weighted by plays' },
-        { label: 'avg feats', value: formatFeatureAverage(featureAverage?.average_features_per_song), detail: `${featureAverage?.featured_tracks.toLocaleString() ?? '0'} featured songs` },
-      ]
-    : [];
+    .map((point) => metricPoint(point.bucket, point.average_release_year ?? 0));
+  $: featurePoints = featureTimeline.map((point) => metricPoint(point.bucket, point.average_features_per_song));
+  $: rangeSummary = buildRangeSummary(summary, releaseYears, featureAverage);
+  $: bucketMetrics = [
+    {
+      key: 'listens',
+      label: 'Listens',
+      color: chartColor(0),
+      points: listensPoints,
+      valueLabel: 'Listens',
+      formatAxis: formatCountValue,
+      formatTooltip: formatListensTooltip,
+    },
+    {
+      key: 'time',
+      label: 'Time listened',
+      color: chartColor(1),
+      points: timePoints,
+      valueLabel: 'Time listened',
+      formatAxis: formatDurationValue,
+      formatTooltip: formatDurationValue,
+    },
+    {
+      key: 'artists',
+      label: 'Different artists',
+      color: chartColor(2),
+      points: uniqueArtistPoints,
+      valueLabel: 'Artists',
+      formatAxis: formatCountValue,
+      formatTooltip: formatArtistsTooltip,
+    },
+  ];
 
   onMount(() => {
     activeRange = get(selectedStatsRange);
     lastRangeKey = statsRangeSelectionKey(activeRange);
-    void loadAvailableYears();
     void loadStats();
 
     unsubscribeRange = selectedStatsRange.subscribe((selection) => {
@@ -168,41 +152,21 @@
     error = null;
 
     try {
-      const [
-        nextSummary,
-        nextTopArtists,
-        nextArtistDistribution,
-        nextHours,
-        nextHourlyArtists,
-        nextTimeline,
-        nextDiversity,
-        nextReleaseYears,
-        nextFeatureAverage,
-        nextFeatureTimeline,
-      ] = await Promise.all([
-        apiFetch<SummaryStats>(statsPath('/stats/summary', query)),
-        apiFetch<TopArtist[]>(statsPath('/stats/top/artists', query, { limit: 12, metric: 'count' })),
-        apiFetch<BucketedTopArtist[]>(statsPath('/stats/top/artists-by-bucket', query, { split, metric: 'count', limit: DISTRIBUTION_ARTIST_LIMIT, group_other: 'true' })),
-        apiFetch<HourRepartitionPoint[]>(statsPath('/stats/hour-repartition/tracks', query)),
-        apiFetch<HourlyTopArtist[]>(statsPath('/stats/top/artists-by-hour', query, { limit: 1, metric: 'count' })),
-        apiFetch<TimelinePoint[]>(statsPath('/stats/listening-over-time', query, { split })),
-        apiFetch<DiversityTimelinePoint[]>(statsPath('/stats/diversity-over-time', query, { split })),
-        apiFetch<AlbumReleaseYearsStats>(statsPath('/stats/album-release-years', query)),
-        apiFetch<FeatureAverageStats>(statsPath('/stats/feature-average', query)),
-        apiFetch<FeatureTimelinePoint[]>(statsPath('/stats/feature-average-over-time', query, { split })),
-      ]);
+      const nextDashboard = await apiFetch<StatsDashboardResponse>(statsPath('/stats/dashboard', query, { split }));
 
       if (request !== requestId) return;
-      summary = nextSummary;
-      topArtists = nextTopArtists;
-      artistDistributionRows = nextArtistDistribution;
-      hours = nextHours;
-      hourlyArtists = nextHourlyArtists;
-      timeline = nextTimeline;
-      diversity = nextDiversity;
-      releaseYears = nextReleaseYears;
-      featureAverage = nextFeatureAverage;
-      featureTimeline = nextFeatureTimeline;
+      availableYears = nextDashboard.available_years;
+      summary = nextDashboard.summary;
+      topArtists = nextDashboard.top_artists;
+      artistDistributionRows = nextDashboard.artist_distribution;
+      hours = nextDashboard.hours;
+      hourlyArtists = nextDashboard.hourly_artists;
+      timeline = nextDashboard.timeline;
+      diversity = nextDashboard.diversity;
+      releaseYears = nextDashboard.release_years;
+      featureAverage = nextDashboard.feature_average;
+      featureTimeline = nextDashboard.feature_timeline;
+      hourFormat = nextDashboard.hour_format;
     } catch (err) {
       if (request !== requestId) return;
       error = err instanceof Error ? err.message : 'Unable to load stats';
@@ -214,28 +178,17 @@
     }
   }
 
-  async function loadAvailableYears() {
-    try {
-      const points = await apiFetch<TimelinePoint[]>(`${apiPrefix}/stats/listening-over-time?split=year`);
-      const years = points
-        .map((point) => Number(point.bucket.slice(0, 4)))
-        .filter((year) => Number.isInteger(year));
-      availableYears = Array.from(new Set([currentYear, ...years])).toSorted((a, b) => b - a);
-    } catch {
-      availableYears = [currentYear];
-    }
-  }
-
-  function statsPath(path: string, query: string, extra: Record<string, string | number> = {}): string {
+  function statsPath(path: string, query: string, extra: Record<string, string | number | boolean> = {}): string {
     const params = new URLSearchParams(query);
     for (const [key, value] of Object.entries(extra)) params.set(key, String(value));
     return `${apiPrefix}${path}?${params.toString()}`;
   }
 
   function splitForRange(range: StatsRangeKey): TimeSplit {
-    if (range === 'today' || range === 'week') return 'hour';
-    if (range === 'month') return 'day';
-    return 'week';
+    if (range === 'today') return 'hour';
+    if (range === 'week' || range === 'month') return 'day';
+    if (range === 'year') return 'week';
+    return 'month';
   }
 
   function splitLabel(split: TimeSplit): string {
@@ -326,69 +279,12 @@
     return String(value).padStart(2, '0');
   }
 
-  function buildDistributionEntities(rows: BucketedTopArtist[]): DistributionEntity[] {
-    const byId = new Map<string, DistributionEntity>();
-    for (const row of rows) {
-      const isOther = row.id === OTHER_ARTISTS_ID;
-      const current = byId.get(row.id) ?? { id: row.id, name: row.name, image_url: row.image_url, total: 0, isOther };
-      current.total += row.count;
-      current.image_url ||= row.image_url;
-      current.isOther ||= isOther;
-      byId.set(row.id, current);
-    }
-    return [...byId.values()].toSorted((a, b) => {
-      if (a.isOther !== b.isOther) return a.isOther ? 1 : -1;
-      return b.total - a.total;
-    });
-  }
-
-  function buildDistributionBuckets(rows: BucketedTopArtist[], entities: DistributionEntity[], buckets: string[]): DistributionBucket[] {
-    const entityIds = new Set(entities.map((entity) => entity.id));
-    const byBucket = new Map<string, Map<string, number>>();
-    for (const row of rows) {
-      if (!entityIds.has(row.id)) continue;
-      const bucket = byBucket.get(row.bucket) ?? new Map<string, number>();
-      bucket.set(row.id, (bucket.get(row.id) ?? 0) + row.count);
-      byBucket.set(row.bucket, bucket);
-    }
-
-    return buckets.map((bucket) => {
-      const values = byBucket.get(bucket) ?? new Map<string, number>();
-      const total = [...values.values()].reduce((sum, value) => sum + value, 0);
-      const segments = entities.map((entity, index) => {
-        const value = values.get(entity.id) ?? 0;
-        return {
-          ...entity,
-          value,
-          percent: total > 0 ? (value / total) * 100 : 0,
-          color: distributionColor(index, entity),
-        };
-      });
-      return { bucket, total, segments };
-    });
-  }
-
-  function buildDistributionChartData(buckets: DistributionBucket[], entities: DistributionEntity[]): DistributionDatum[] {
-    return buckets.map((bucket) => {
-      const date = parseBucketDate(bucket.bucket) ?? new Date(bucket.bucket);
-      const datum: DistributionDatum = { bucket: bucket.bucket, date, total: bucket.total };
-      for (const entity of entities) datum[entity.id] = distributionSegmentValue(bucket, entity.id);
-      return datum;
-    });
-  }
-
-  function buildHourArtistSlots(rows: HourlyTopArtist[]): HourArtistSlot[] {
-    const byHour = new Map(rows.map((artist) => [artist.hour, artist]));
-    const max = Math.max(1, ...rows.map((artist) => artist.count));
-    return Array.from({ length: 24 }, (_, hour) => {
-      const artist = byHour.get(hour) ?? null;
-      return {
-        hour,
-        label: formatHour(hour),
-        artist,
-        percent: artist ? (artist.count / max) * 100 : 0,
-      };
-    });
+  function metricPoint(bucket: string, value: number): StatsMetricPoint {
+    return {
+      rawLabel: bucket,
+      label: formatBucketLabel(bucket),
+      value,
+    };
   }
 
   function artistHref(id: string): string {
@@ -414,7 +310,7 @@
     if (timelineSplit === 'month') return date.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
     if (timelineSplit === 'week') return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
     if (timelineSplit === 'hour') {
-      const hour = date.toLocaleTimeString(undefined, { hour: '2-digit' });
+      const hour = formatHourLabel(date.getHours());
       if (activeRange.range === 'today') return hour;
       const day = date.toLocaleDateString(undefined, { day: 'numeric', weekday: 'short' });
       return `${day}, ${hour}`;
@@ -422,8 +318,11 @@
     return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   }
 
-  function formatHour(hour: number): string {
-    return `${String(hour).padStart(2, '0')}:00`;
+  function formatHourLabel(hour: number): string {
+    if (hourFormat === '24') return `${String(hour).padStart(2, '0')}:00`;
+    const suffix = hour < 12 ? 'AM' : 'PM';
+    const value = hour % 12 || 12;
+    return `${value} ${suffix}`;
   }
 
   function formatReleaseYear(value: number | null | undefined): string {
@@ -434,6 +333,10 @@
     return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '0.00';
   }
 
+  function formatReleaseYearAxis(value: unknown): string {
+    return Math.round(numericValue(value)).toString();
+  }
+
   function formatReleaseYearValue(value: unknown): string {
     return formatReleaseYear(numericValue(value));
   }
@@ -442,104 +345,39 @@
     return numericValue(value).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
   }
 
-  function formatPlays(value: unknown): string {
-    return `${formatCountValue(value)} plays`;
+  function formatListensTooltip(value: unknown): string {
+    return `${formatCountValue(value)} listens`;
   }
 
-  function formatDistributionValue(value: number): string {
-    return `${value.toLocaleString()} plays`;
+  function formatArtistsTooltip(value: unknown): string {
+    return `${formatCountValue(value)} artists`;
   }
 
-  function areaPointWidth(split: TimeSplit): number {
-    if (split === 'hour') return 14;
-    if (split === 'day') return 24;
-    if (split === 'week') return 18;
-    return 34;
+  function buildRangeSummary(
+    nextSummary: SummaryStats | null,
+    nextReleaseYears: AlbumReleaseYearsStats | null,
+    nextFeatureAverage: FeatureAverageStats | null,
+  ): SummaryItem[] {
+    if (!nextSummary) return [];
+    return [
+      { label: 'Listens', value: nextSummary.total_listens.toLocaleString(), detail: activeRangeLabel },
+      { label: 'Time listened', value: formatDuration(nextSummary.total_duration_ms), detail: activeRangeLabel },
+      { label: 'Different artists', value: nextSummary.unique_artists.toLocaleString(), detail: activeRangeLabel },
+      { label: 'Average release year', value: formatReleaseYear(nextReleaseYears?.average_release_year), detail: 'weighted by listens' },
+      { label: 'Average features per track', value: formatFeatureAverage(nextFeatureAverage?.average_features_per_song), detail: `${nextFeatureAverage?.unique_tracks.toLocaleString() ?? '0'} tracks` },
+    ];
   }
 
-  function formatDistributionTooltipLabel(value: unknown): string {
-    if (value instanceof Date) return formatBucketDateLabel(value);
-    return formatBucketLabel(String(value ?? ''));
-  }
-
-  function formatBucketDateLabel(date: Date): string {
-    if (timelineSplit === 'year') return date.toLocaleDateString(undefined, { year: 'numeric' });
-    if (timelineSplit === 'month') return date.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
-    if (timelineSplit === 'week') return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-    if (timelineSplit === 'hour') {
-      const hour = date.toLocaleTimeString(undefined, { hour: '2-digit' });
-      if (activeRange.range === 'today') return hour;
-      const day = date.toLocaleDateString(undefined, { day: 'numeric', weekday: 'short' });
-      return `${day}, ${hour}`;
-    }
-    return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  }
-
-  function formatDistributionTooltipValue(value: unknown, payload: TooltipPayloadValue[]): string {
-    const raw = numericValue(value);
-    const total = payload.reduce((sum, item) => sum + numericValue(item.value), 0);
-    const share = total > 0 ? (raw / total) * 100 : 0;
-    return `${formatCountValue(raw)} plays · ${formatPercentValue(share)}`;
-  }
-
-  function formatDistributionCell(bucket: DistributionBucket, entityId: string): string {
-    const segment = bucket.segments.find((item) => item.id === entityId);
-    const value = segment?.value ?? 0;
-    const percent = segment?.percent ?? 0;
-    return `${formatDistributionValue(value)} · ${formatPercentValue(percent)}`;
-  }
-
-  function distributionSegmentValue(bucket: DistributionBucket, entityId: string): number {
-    return bucket.segments.find((segment) => segment.id === entityId)?.value ?? 0;
-  }
-
-  function distributionColor(index: number, entity?: DistributionEntity): string {
-    return entity?.isOther ? 'var(--color-muted)' : chartColor(index);
-  }
-
-  function distributionAreaProps(entity: DistributionEntity) {
-    if (entity.isOther) {
-      return {
-        role: 'presentation',
-        tabindex: -1,
-        'aria-hidden': true,
-      };
-    }
-
-    return {
-      onclick: () => openArtistFromDistribution(entity.id),
-      onkeydown: (event: KeyboardEvent) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        openArtistFromDistribution(entity.id);
-      },
-      role: 'link',
-      tabindex: 0,
-      'aria-label': `Open artist ${entity.name}`,
-    };
-  }
-
-  function openArtistFromDistribution(id: string) {
-    window.location.assign(artistHref(id));
-  }
-
-  function hasDistributionTooltipValue(item: TooltipPayloadValue): boolean {
-    return numericValue(item.value) > 0;
-  }
-
-  function tooltipColor(item: TooltipItem): string {
-    return item.color ?? 'currentColor';
-  }
 </script>
 
-<section class="stats-page page-stack">
+<section class="stats-page page-stack" aria-busy={refreshing}>
   <div class="stats-title">
     <div class="page-title">
       <p class="kicker">Archive stats</p>
       <h1>Stats</h1>
-      <p>{activeRangeLabel}, {timelineDescription}. Rankings, timing, diversity, release era, and featured-artist density.</p>
+      <p>{activeRangeLabel}, {timelineDescription}. Distribution, timing, volume, diversity, release era, and feature density.</p>
     </div>
-    <StatsRangePicker {availableYears} ariaLabel="Choose stats time range" />
+    <StatsRangePicker {availableYears} ariaLabel="Choose stats range" />
   </div>
 
   {#if loading}
@@ -566,10 +404,19 @@
     </section>
 
     <div class="stats-grid">
+      <StatsArtistDistributionChart
+        className="span-8"
+        rows={artistDistributionRows}
+        {bucketKeys}
+        {timelineDescription}
+        {pagePrefix}
+        formatBucketLabel={formatBucketLabel}
+      />
+
       <Card.Root class="stats-card span-4 top-artists-card">
         <Card.Header>
-          <Card.Description>ranked by plays</Card.Description>
-          <Card.Title>Best artists by songs listened</Card.Title>
+          <Card.Description>ranked by listens</Card.Description>
+          <Card.Title>Top artists</Card.Title>
         </Card.Header>
         <Card.Content>
           {#if topArtists.length === 0}
@@ -579,18 +426,18 @@
               {#each topArtists as artist, index (artist.id)}
                 <li style={`--bar: ${barPercent(artist.count, topArtistMax)}; --swatch: ${chartColor(index)};`}>
                   <span class="rank">{String(index + 1).padStart(2, '0')}</span>
-                  <CoverArt src={directImageUrl(artist)} name={artist.name} href={artistTransitionHref(artist.id, `stats-best-artists-${index}`)} size="xs" transitionName={artistTransition(artist.id, `stats-best-artists-${index}`)} />
-                  <a class="artist-name" href={artistHref(artist.id)}>
+                  <CoverArt src={directImageUrl(artist)} name={artist.name} href={artistTransitionHref(artist.id, `stats-top-artists-${index}`)} size="xs" transitionName={artistTransition(artist.id, `stats-top-artists-${index}`)} />
+                  <a class="artist-name" href={artistHref(artist.id)} title={artist.name}>
                     <strong>{artist.name}</strong>
-                    <small>{formatPlays(artist.count)}</small>
+                    <small>{formatListensTooltip(artist.count)}</small>
                   </a>
                   <span class="rank-track" aria-hidden="true"><span></span></span>
                 </li>
               {/each}
             </ol>
             <table class="sr-only">
-              <caption>Best artists by songs listened</caption>
-              <thead><tr><th scope="col">Artist</th><th scope="col">Plays</th></tr></thead>
+              <caption>Top artists by listens</caption>
+              <thead><tr><th scope="col">Artist</th><th scope="col">Listens</th></tr></thead>
               <tbody>
                 {#each topArtists as artist (artist.id)}
                   <tr><td>{artist.name}</td><td>{artist.count}</td></tr>
@@ -601,143 +448,12 @@
         </Card.Content>
       </Card.Root>
 
-      <Card.Root class="stats-card span-8 artist-distribution-card">
-        <Card.Header>
-          <Card.Description>top {DISTRIBUTION_ARTIST_LIMIT} plus Other by {timelineDescription}</Card.Description>
-          <Card.Title>Artist listening distribution</Card.Title>
-        </Card.Header>
-        <Card.Content class="artist-distribution-content">
-          {#if distributionChartBuckets.length === 0}
-            <p class="state">Not enough artist distribution data for this range.</p>
-          {:else}
-            <div class="distribution-legend" aria-label="Artist distribution legend">
-              {#each distributionEntities as entity, index (entity.id)}
-                {#if entity.isOther}
-                  <span class="legend-other" style={`--swatch: ${distributionColor(index, entity)};`} title={`${entity.name}: ${formatDistributionValue(entity.total)}`}>
-                    <span class="legend-swatch" aria-hidden="true"></span>
-                    <span>{entity.name}</span>
-                  </span>
-                {:else}
-                  <a href={artistTransitionHref(entity.id, `stats-distribution-${index}`)} style={`--swatch: ${distributionColor(index, entity)};`}>
-                    <CoverArt src={directImageUrl(entity)} name={entity.name} size="xs" transitionName={artistTransition(entity.id, `stats-distribution-${index}`)} />
-                    <span>{entity.name}</span>
-                  </a>
-                {/if}
-              {/each}
-            </div>
-            <div class="stacked-area-scroll">
-              <Chart.Container
-                config={distributionChartConfig}
-                class="stacked-area-chart"
-                style={`--area-width: ${areaChartWidth}px;`}
-                role="group"
-                aria-label={`Top ${DISTRIBUTION_ARTIST_LIMIT} artist share by ${timelineDescription}, with the rest grouped as Other. Artist areas open detail pages.`}
-              >
-                <AreaChart
-                  data={distributionChartData}
-                  x="date"
-                  xScale={scaleUtc()}
-                  series={distributionSeries}
-                  seriesLayout="stackExpand"
-                  padding={{ left: 44, right: 18, top: 14, bottom: 38 }}
-                  props={{
-                    xAxis: { format: formatDistributionTooltipLabel, ticks: distributionTickCount },
-                    area: {
-                      curve: curveMonotoneX,
-                      fillOpacity: 0.5,
-                      line: { strokeWidth: 1.1, role: 'presentation', tabindex: -1, 'aria-hidden': true, 'aria-label': undefined },
-                      motion: 'tween',
-                    },
-                    tooltip: { context: { mode: 'quadtree-x' } },
-                  }}
-                >
-                  {#snippet tooltip()}
-                    <Chart.Tooltip class="distribution-tooltip" labelFormatter={formatDistributionTooltipLabel} filter={hasDistributionTooltipValue} indicator="line">
-                      {#snippet formatter({ value, name, item, payload })}
-                        <div class="tooltip-row">
-                          <span class="tooltip-swatch" style:background={tooltipColor(item)}></span>
-                          <span class="tooltip-name">{name}</span>
-                          <span class="tooltip-value">{formatDistributionTooltipValue(value, payload)}</span>
-                        </div>
-                      {/snippet}
-                    </Chart.Tooltip>
-                  {/snippet}
-                </AreaChart>
-              </Chart.Container>
-            </div>
-            <table class="sr-only">
-              <caption>Artist listening distribution data</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Bucket</th>
-                  <th scope="col">Artist</th>
-                  <th scope="col">Share</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each distributionChartBuckets as bucket (bucket.bucket)}
-                  {#each bucket.segments.filter((segment) => segment.value > 0) as segment (segment.id)}
-                    <tr>
-                      <td>{formatBucketLabel(bucket.bucket)}</td>
-                      <td>{segment.name}</td>
-                      <td>{formatDistributionCell(bucket, segment.id)}</td>
-                    </tr>
-                  {/each}
-                {/each}
-              </tbody>
-            </table>
-          {/if}
-        </Card.Content>
-      </Card.Root>
+      <StatsDayDistributionChart points={hours} {hourFormat} className="span-8" />
+      <StatsHourArtistHeatmap artists={hourlyArtists} {hours} {hourFormat} {pagePrefix} className="span-4" />
 
-      <StatsHourDistribution points={hours} className="span-8" />
-
-      <Card.Root class="stats-card span-4 hour-artists-card">
-        <Card.Header>
-          <Card.Description>best artist per local hour</Card.Description>
-          <Card.Title>Best artists for hour of day</Card.Title>
-        </Card.Header>
-        <Card.Content>
-          {#if hourlyArtists.length === 0}
-            <p class="state">No hourly artist data for this range.</p>
-          {:else}
-            <div class="hour-artist-list">
-              {#each hourArtistSlots as slot (slot.hour)}
-                {#if slot.artist}
-                  <a class="hour-artist-row" href={artistHref(slot.artist.artist_id)} style={`--bar: ${slot.percent}%;`}>
-                    <span class="hour-label">{slot.label}</span>
-                    <span class="hour-artist-name">{slot.artist.artist_name}</span>
-                    <span class="hour-count">{slot.artist.count.toLocaleString()}</span>
-                    <span class="hour-bar" aria-hidden="true"><span></span></span>
-                  </a>
-                {:else}
-                  <div class="hour-artist-row empty" style="--bar: 0%;">
-                    <span class="hour-label">{slot.label}</span>
-                    <span class="hour-artist-name">No plays</span>
-                    <span class="hour-count">0</span>
-                    <span class="hour-bar" aria-hidden="true"><span></span></span>
-                  </div>
-                {/if}
-              {/each}
-            </div>
-            <table class="sr-only">
-              <caption>Best artists by local hour</caption>
-              <thead><tr><th scope="col">Hour</th><th scope="col">Artist</th><th scope="col">Plays</th></tr></thead>
-              <tbody>
-                {#each hourArtistSlots as slot (slot.hour)}
-                  <tr><td>{slot.label}</td><td>{slot.artist?.artist_name ?? 'No plays'}</td><td>{slot.artist?.count ?? 0}</td></tr>
-                {/each}
-              </tbody>
-            </table>
-          {/if}
-        </Card.Content>
-      </Card.Root>
-
-      <StatsLineChart className="span-6" title="Songs listened" description={timelineDescription} points={songPoints} valueLabel="Songs" color={chartColor(0)} formatValue={formatPlays} formatLabel={formatBucketLabel} />
-      <StatsLineChart className="span-6" title="Time listened" description={timelineDescription} points={timePoints} valueLabel="Time" color={chartColor(1)} formatValue={formatDurationValue} formatLabel={formatBucketLabel} />
-      <StatsLineChart className="span-6" title="Different artists listened" description={timelineDescription} points={uniqueArtistPoints} valueLabel="Artists" color={chartColor(2)} formatValue={formatCountValue} formatLabel={formatBucketLabel} />
-      <StatsLineChart className="span-6" title="Average album release date" description="average release year" points={releaseYearPoints} valueLabel="Average release year" color={chartColor(3)} formatValue={formatReleaseYearValue} formatLabel={formatBucketLabel} emptyLabel="No release year data for this range." zeroBased={false} />
-      <StatsLineChart className="span-6" title="Average feats per song" description="featured artists on listened songs" points={featurePoints} valueLabel="Average features" color={chartColor(4)} formatValue={formatFeatureValue} formatLabel={formatBucketLabel} emptyLabel="No feature data for this range." zeroBased={false} />
+      <StatsBucketMetricsChart className="span-12" title="Bucket metrics" description={timelineDescription} metrics={bucketMetrics} />
+      <StatsMetricChart className="span-6" title="Average release year" description="listen-weighted by bucket" points={releaseYearPoints} valueLabel="Average release year" color={chartColor(3)} kind="line" formatValue={formatReleaseYearValue} formatAxisValue={formatReleaseYearAxis} emptyLabel="No release year data for this range." zeroBased={false} />
+      <StatsMetricChart className="span-6" title="Average features per track" description="distinct tracks by bucket" points={featurePoints} valueLabel="Average features" color={chartColor(4)} kind="line" formatValue={formatFeatureValue} emptyLabel="No feature data for this range." zeroBased={false} />
     </div>
   {/if}
 </section>
@@ -816,9 +532,9 @@
   }
 
   .stat-rail strong {
-    font-size: clamp(1.08rem, 1.7vw, 1.45rem);
+    font-size: clamp(1.02rem, 1.45vw, 1.34rem);
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.055em;
+    letter-spacing: -0.045em;
     line-height: 1;
   }
 
@@ -833,22 +549,23 @@
   .stats-grid :global(.span-12) { grid-column: span 12; }
 
   :global(.stats-card),
-  :global(.stats-line-card),
-  :global(.hour-distribution-card) {
+  .stats-grid :global(.stats-metric-card),
+  .stats-grid :global(.day-distribution-card),
+  .stats-grid :global(.hour-artist-card) {
     min-width: 0;
     height: 100%;
     gap: 0.85rem;
     padding-block: 1rem;
   }
 
-  .stats-grid :global([data-slot="card-header"]),
-  .stats-grid :global([data-slot="card-content"]) {
+  .stats-grid :global([data-slot='card-header']),
+  .stats-grid :global([data-slot='card-content']) {
     padding-inline: 1rem;
   }
 
   .rank-bars {
     display: grid;
-    gap: 0.34rem;
+    gap: 0.42rem;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -856,7 +573,7 @@
 
   .rank-bars li {
     display: grid;
-    grid-template-columns: 1.55rem auto minmax(0, 1fr) minmax(4rem, 7.5rem);
+    grid-template-columns: 1.55rem auto minmax(0, 1fr) minmax(4rem, 7rem);
     gap: 0.45rem;
     align-items: center;
   }
@@ -897,7 +614,7 @@
   .rank-track {
     grid-column: 4;
     display: block;
-    height: 0.22rem;
+    height: 0.24rem;
     overflow: hidden;
     border-radius: 999px;
     background: color-mix(in srgb, var(--color-border) 54%, transparent);
@@ -909,188 +626,6 @@
     height: 100%;
     border-radius: inherit;
     background: var(--swatch);
-  }
-
-  :global(.artist-distribution-content) {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    flex-direction: column;
-  }
-
-  .distribution-legend {
-    display: flex;
-    gap: 0.3rem;
-    overflow-x: auto;
-    padding-bottom: 0.35rem;
-    scrollbar-width: thin;
-  }
-
-  .distribution-legend a,
-  .distribution-legend .legend-other {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    max-width: 11rem;
-    border: 1px solid color-mix(in srgb, var(--swatch) 44%, var(--color-border));
-    border-radius: var(--radius-sm);
-    padding: 0.25rem 0.45rem 0.25rem 0.25rem;
-    background: color-mix(in srgb, var(--swatch) 12%, transparent);
-    color: var(--color-text);
-    font-size: 0.7rem;
-    font-weight: 700;
-    text-decoration: none;
-  }
-
-  .distribution-legend .legend-other {
-    color: var(--color-muted);
-  }
-
-  .legend-swatch {
-    width: 1.35rem;
-    height: 1.35rem;
-    flex: 0 0 auto;
-    border: 1px solid color-mix(in srgb, var(--swatch) 52%, var(--color-border));
-    border-radius: var(--radius-xs);
-    background: color-mix(in srgb, var(--swatch) 72%, transparent);
-  }
-
-  .distribution-legend a > span:last-child,
-  .distribution-legend .legend-other > span:last-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .stacked-area-scroll {
-    flex: 1;
-    min-height: 0;
-    overflow-x: auto;
-    padding: 0.2rem 0 0.1rem;
-    scrollbar-width: thin;
-  }
-
-  :global(.stacked-area-chart) {
-    width: var(--area-width);
-    min-width: 100%;
-    min-height: 19.5rem;
-  }
-
-  :global(.stacked-area-chart .lc-area-path) {
-    cursor: pointer;
-    opacity: 0.84;
-  }
-
-  :global(.stacked-area-chart .lc-area-path[aria-hidden="true"]) {
-    cursor: default;
-  }
-
-  :global(.stacked-area-chart .lc-area-path:focus-visible) {
-    outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
-    outline-offset: 2px;
-  }
-
-  :global(.stacked-area-chart .lc-spline-path) {
-    pointer-events: none;
-    stroke-linejoin: round;
-  }
-
-  :global(.distribution-tooltip) {
-    max-height: min(20rem, calc(100vh - 2rem));
-    overflow: auto;
-  }
-
-  .tooltip-row {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 0.45rem;
-    align-items: center;
-    min-width: 13rem;
-  }
-
-  .tooltip-swatch {
-    width: 0.58rem;
-    height: 0.58rem;
-    border-radius: 999px;
-  }
-
-  .tooltip-name {
-    overflow: hidden;
-    color: var(--color-text);
-    font-weight: 750;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .tooltip-value {
-    color: var(--color-muted);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-
-  .hour-artist-list {
-    display: grid;
-    gap: 0.28rem;
-    max-height: 17rem;
-    overflow: auto;
-    padding-right: 0.15rem;
-  }
-
-  .hour-artist-row {
-    display: grid;
-    grid-template-columns: 3.15rem minmax(0, 1fr) auto;
-    gap: 0.45rem;
-    align-items: center;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    padding: 0.38rem 0.42rem;
-    color: var(--color-text);
-    text-decoration: none;
-  }
-
-  a.hour-artist-row:hover,
-  a.hour-artist-row:focus-visible {
-    border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
-    background: color-mix(in srgb, var(--color-panel-2) 52%, transparent);
-    outline: none;
-  }
-
-  .hour-artist-row.empty {
-    color: var(--color-muted);
-  }
-
-  .hour-label,
-  .hour-count {
-    color: var(--color-muted);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.7rem;
-    font-variant-numeric: tabular-nums;
-    font-weight: 800;
-  }
-
-  .hour-artist-name {
-    overflow: hidden;
-    font-size: 0.78rem;
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .hour-bar {
-    grid-column: 2 / 4;
-    display: block;
-    height: 0.22rem;
-    overflow: hidden;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--color-border) 54%, transparent);
-  }
-
-  .hour-bar span {
-    display: block;
-    width: var(--bar);
-    height: 100%;
-    border-radius: inherit;
-    background: var(--chart-1);
   }
 
   .state {

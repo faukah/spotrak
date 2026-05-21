@@ -25,6 +25,11 @@ pub struct GlobalPreferences {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct StatsDisplayPreferences {
+    pub hour_format: String,
+}
+
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct SettingsPatch {
     pub history_line: Option<bool>,
@@ -39,45 +44,45 @@ pub struct SettingsPatch {
 
 impl SettingsPatch {
     pub fn validate(&self) -> crate::error::Result<()> {
-        if let Some(value) = &self.preferred_stats_period {
-            if !matches!(value.as_str(), "day" | "week" | "month" | "year") {
-                return Err(crate::error::AppError::validation(
-                    "preferred_stats_period must be day, week, month, or year",
-                ));
-            }
+        if let Some(value) = &self.preferred_stats_period
+            && !matches!(value.as_str(), "day" | "week" | "month" | "year")
+        {
+            return Err(crate::error::AppError::validation(
+                "preferred_stats_period must be day, week, month, or year",
+            ));
         }
-        if let Some(value) = self.nb_elements {
-            if !(5..=50).contains(&value) {
-                return Err(crate::error::AppError::validation(
-                    "nb_elements must be between 5 and 50",
-                ));
-            }
+        if let Some(value) = self.nb_elements
+            && !(5..=50).contains(&value)
+        {
+            return Err(crate::error::AppError::validation(
+                "nb_elements must be between 5 and 50",
+            ));
         }
-        if let Some(value) = &self.metric_used {
-            if !matches!(value.as_str(), "number" | "duration") {
-                return Err(crate::error::AppError::validation(
-                    "metric_used must be number or duration",
-                ));
-            }
+        if let Some(value) = &self.metric_used
+            && !matches!(value.as_str(), "number" | "duration")
+        {
+            return Err(crate::error::AppError::validation(
+                "metric_used must be number or duration",
+            ));
         }
-        if let Some(value) = &self.dark_mode {
-            if !matches!(value.as_str(), "follow" | "dark" | "light") {
-                return Err(crate::error::AppError::validation(
-                    "dark_mode must be follow, dark, or light",
-                ));
-            }
+        if let Some(value) = &self.dark_mode
+            && !matches!(value.as_str(), "follow" | "dark" | "light")
+        {
+            return Err(crate::error::AppError::validation(
+                "dark_mode must be follow, dark, or light",
+            ));
         }
         if let Some(Some(timezone)) = &self.timezone {
             timezone.parse::<chrono_tz::Tz>().map_err(|_| {
                 crate::error::AppError::validation("timezone must be an IANA timezone name")
             })?;
         }
-        if let Some(value) = &self.hour_format {
-            if !matches!(value.as_str(), "12" | "24") {
-                return Err(crate::error::AppError::validation(
-                    "hour_format must be 12 or 24",
-                ));
-            }
+        if let Some(value) = &self.hour_format
+            && !matches!(value.as_str(), "12" | "24")
+        {
+            return Err(crate::error::AppError::validation(
+                "hour_format must be 12 or 24",
+            ));
         }
         Ok(())
     }

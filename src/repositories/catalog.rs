@@ -63,8 +63,69 @@ struct SpotifySearchCacheRow {
 }
 
 pub enum SpotifySearchCacheHit {
-    Found(SpotifyTrack),
+    Found(Box<SpotifyTrack>),
     NotFound,
+}
+
+pub async fn user_has_track(pool: &PgPool, user_id: Uuid, track_id: &str) -> Result<bool> {
+    let exists = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS (
+          SELECT 1 FROM listening_events
+          WHERE user_id = $1
+            AND track_id = $2
+            AND blacklisted_by IS NULL
+        )
+        "#,
+    )
+    .bind(user_id)
+    .bind(track_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(exists)
+}
+
+pub async fn user_has_artist(pool: &PgPool, user_id: Uuid, artist_id: &str) -> Result<bool> {
+    let exists = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS (
+          SELECT 1
+          FROM listening_events le
+          WHERE le.user_id = $1
+            AND le.blacklisted_by IS NULL
+            AND (
+              le.primary_artist_id = $2
+              OR EXISTS (
+                SELECT 1 FROM track_artists ta
+                WHERE ta.track_id = le.track_id AND ta.artist_id = $2
+              )
+            )
+        )
+        "#,
+    )
+    .bind(user_id)
+    .bind(artist_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(exists)
+}
+
+pub async fn user_has_album(pool: &PgPool, user_id: Uuid, album_id: &str) -> Result<bool> {
+    let exists = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS (
+          SELECT 1 FROM listening_events
+          WHERE user_id = $1
+            AND album_id = $2
+            AND blacklisted_by IS NULL
+        )
+        "#,
+    )
+    .bind(user_id)
+    .bind(album_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(exists)
 }
 
 pub async fn spotify_track_from_cache(pool: &PgPool, id: &str) -> Result<Option<SpotifyTrack>> {
@@ -134,6 +195,7 @@ pub async fn spotify_search_cache(
     };
     Ok(serde_json::from_value::<SpotifyTrack>(raw)
         .ok()
+        .map(Box::new)
         .map(SpotifySearchCacheHit::Found))
 }
 
@@ -492,7 +554,7 @@ pub async fn upsert_recently_played_event(
           user_id, track_id, album_id, primary_artist_id, duration_ms, played_at, blacklisted_by, source, import_job_id
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT (user_id, track_id, played_at) DO NOTHING
+        ON CONFLICT DO NOTHING
         "#,
     )
     .bind(user_id)

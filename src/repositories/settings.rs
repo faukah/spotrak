@@ -91,6 +91,19 @@ pub async fn global(pool: &PgPool) -> Result<GlobalPreferences> {
     Ok(preferences)
 }
 
+pub async fn global_tx(tx: &mut Transaction<'_, Postgres>) -> Result<GlobalPreferences> {
+    let preferences = sqlx::query_as::<_, GlobalPreferences>(
+        r#"
+        SELECT allow_registrations, allow_affinity, updated_at
+        FROM global_preferences
+        WHERE id = TRUE
+        "#,
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok(preferences)
+}
+
 pub async fn update_global(
     pool: &PgPool,
     patch: &GlobalPreferencesPatch,

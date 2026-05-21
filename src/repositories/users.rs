@@ -7,9 +7,9 @@ use crate::{
     error::Result,
 };
 
-pub async fn count(pool: &PgPool) -> Result<i64> {
+pub async fn count_tx(tx: &mut Transaction<'_, Postgres>) -> Result<i64> {
     let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
-        .fetch_one(pool)
+        .fetch_one(&mut **tx)
         .await?;
     Ok(count)
 }
@@ -30,7 +30,10 @@ pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>> {
     Ok(user)
 }
 
-pub async fn find_by_spotify_id(pool: &PgPool, spotify_id: &str) -> Result<Option<User>> {
+pub async fn find_by_spotify_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    spotify_id: &str,
+) -> Result<Option<User>> {
     let user = sqlx::query_as::<_, User>(
         r#"
         SELECT id, username, spotify_id, admin, access_token, refresh_token, token_expires_at,
@@ -40,7 +43,7 @@ pub async fn find_by_spotify_id(pool: &PgPool, spotify_id: &str) -> Result<Optio
         "#,
     )
     .bind(spotify_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut **tx)
     .await?;
     Ok(user)
 }

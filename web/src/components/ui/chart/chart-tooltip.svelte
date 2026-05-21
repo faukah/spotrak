@@ -23,8 +23,10 @@
 		filter,
 		nameKey,
 		color,
+		contained,
 		...restProps
 	}: WithoutChildren<WithElementRef<HTMLAttributes<HTMLDivElement>>> & {
+		contained?: "container" | "window" | false;
 		hideLabel?: boolean;
 		label?: string;
 		indicator?: "line" | "dot" | "dashed";
@@ -105,7 +107,7 @@
 	{/if}
 {/snippet}
 
-<TooltipPrimitive.Root variant="none">
+<TooltipPrimitive.Root variant="none" {contained}>
 	<div
 		bind:this={ref}
 		class={cn(

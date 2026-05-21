@@ -7,6 +7,7 @@ use uuid::Uuid;
 use crate::{error::AppError, error::Result};
 
 pub const STATS_OVERVIEW_NAMESPACE: &str = "stats_overview_v1";
+pub const STATS_DASHBOARD_NAMESPACE: &str = "stats_dashboard_v1";
 
 pub async fn get<T>(
     pool: &PgPool,
@@ -87,6 +88,12 @@ pub async fn invalidate_namespace(pool: &PgPool, namespace: &str, user_id: Uuid)
     .execute(pool)
     .await?;
     Ok(result.rows_affected())
+}
+
+pub async fn invalidate_stats(pool: &PgPool, user_id: Uuid) -> Result<()> {
+    invalidate_namespace(pool, STATS_OVERVIEW_NAMESPACE, user_id).await?;
+    invalidate_namespace(pool, STATS_DASHBOARD_NAMESPACE, user_id).await?;
+    Ok(())
 }
 
 pub async fn cleanup_expired(pool: &PgPool) -> Result<u64> {

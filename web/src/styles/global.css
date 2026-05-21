@@ -108,6 +108,113 @@ a {
   border: 0;
 }
 
+.clock-card [data-slot='card-header'] {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.clock-card .metric-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.clock-card .metric-toggle {
+  min-width: 0;
+}
+
+.clock-card .metric-toggle span {
+  display: inline-block;
+  width: 0.65rem;
+  color: var(--color-primary);
+  text-align: center;
+}
+
+.clock-card .day-chart-loading {
+  min-height: 20rem;
+  border-radius: var(--radius-lg);
+}
+
+.clock-card .day-chart-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.clock-card .day-chart-row {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.clock-card .row-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.clock-card .row-swatch {
+  width: 0.58rem;
+  height: 0.58rem;
+  border-radius: 999px;
+}
+
+.clock-card .day-metric-chart {
+  height: clamp(9.5rem, 22vw, 10.5rem);
+  min-height: 0;
+  aspect-ratio: auto;
+}
+
+.clock-card .single-row .day-metric-chart {
+  height: 18rem;
+}
+
+.clock-card .tooltip-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+  min-width: 12rem;
+}
+
+.clock-card .tooltip-swatch {
+  width: 0.58rem;
+  height: 0.58rem;
+  border-radius: 999px;
+}
+
+.clock-card .tooltip-name {
+  overflow: hidden;
+  color: var(--color-text);
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clock-card .tooltip-value {
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 680px) {
+  .clock-card [data-slot='card-header'] {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .clock-card .metric-toggles {
+    justify-content: flex-start;
+  }
+}
+
 .site-header {
   position: sticky;
   top: 0;

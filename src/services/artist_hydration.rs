@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use crate::{
     error::Result,
     repositories::{catalog, spotify_queue, users},
@@ -11,33 +13,50 @@ pub async fn process_queued_once(state: &AppState) -> Result<usize> {
     let jobs =
         spotify_queue::claim_artist_hydration_jobs(&state.db, ARTIST_HYDRATION_BATCH_SIZE).await?;
     let mut hydrated = 0;
+    let mut jobs_by_user = HashMap::new();
 
     for job in jobs {
-        let requested = vec![job.artist_id.clone()];
+        jobs_by_user
+            .entry(job.user_id)
+            .or_insert_with(Vec::new)
+            .push(job);
+    }
+
+    for (user_id, jobs) in jobs_by_user {
+        let requested = jobs
+            .iter()
+            .map(|job| job.artist_id.clone())
+            .collect::<Vec<_>>();
         let missing = catalog::artists_missing_images(&state.db, &requested).await?;
-        if missing.is_empty() {
-            spotify_queue::complete_artist_hydration(&state.db, &job.artist_id).await?;
+        let missing_set = missing.iter().cloned().collect::<HashSet<_>>();
+        let mut missing_jobs = Vec::new();
+
+        for job in &jobs {
+            if missing_set.contains(&job.artist_id) {
+                missing_jobs.push(job);
+            } else {
+                spotify_queue::complete_artist_hydration(&state.db, &job.artist_id).await?;
+            }
+        }
+
+        if missing_jobs.is_empty() {
             continue;
         }
 
-        let Some(user) = users::find_by_id(&state.db, job.user_id).await? else {
-            spotify_queue::complete_artist_hydration(&state.db, &job.artist_id).await?;
+        let Some(user) = users::find_by_id(&state.db, user_id).await? else {
+            complete_jobs(state, &missing_jobs).await?;
             continue;
         };
 
         let mut access_token = match poller::valid_access_token(state, &user).await {
             Ok(access_token) => access_token,
             Err(error) => {
-                spotify_queue::fail_artist_hydration(
-                    &state.db,
-                    &job.artist_id,
-                    job.attempts,
-                    &error.to_string(),
-                )
-                .await?;
+                let message = error.to_string();
+                fail_jobs(state, &missing_jobs, &message).await?;
                 tracing::debug!(
                     ?error,
-                    artist_id = %job.artist_id,
+                    user_id = %user_id,
+                    artist_count = missing_jobs.len(),
                     "artist metadata hydration postponed because no Spotify token is available"
                 );
                 continue;
@@ -48,7 +67,8 @@ pub async fn process_queued_once(state: &AppState) -> Result<usize> {
             match ingestion::hydrate_artist_metadata(state, &access_token, missing.clone()).await {
                 Err(error) if poller::is_spotify_authorization_error(&error) => {
                     tracing::info!(
-                        artist_id = %job.artist_id,
+                        user_id = %user.id,
+                        artist_count = missing_jobs.len(),
                         "refreshing Spotify token after artist hydration authorization failure"
                     );
                     access_token = poller::force_refresh_access_token(state, user.id).await?;
@@ -60,19 +80,15 @@ pub async fn process_queued_once(state: &AppState) -> Result<usize> {
         match hydration {
             Ok(count) => {
                 hydrated += count;
-                spotify_queue::complete_artist_hydration(&state.db, &job.artist_id).await?;
+                complete_jobs(state, &missing_jobs).await?;
             }
             Err(error) => {
-                spotify_queue::fail_artist_hydration(
-                    &state.db,
-                    &job.artist_id,
-                    job.attempts,
-                    &error.to_string(),
-                )
-                .await?;
+                let message = error.to_string();
+                fail_jobs(state, &missing_jobs, &message).await?;
                 tracing::debug!(
                     ?error,
-                    artist_id = %job.artist_id,
+                    user_id = %user_id,
+                    artist_count = missing_jobs.len(),
                     "artist metadata hydration failed and will be retried"
                 );
             }
@@ -80,4 +96,32 @@ pub async fn process_queued_once(state: &AppState) -> Result<usize> {
     }
 
     Ok(hydrated)
+}
+
+async fn complete_jobs(
+    state: &AppState,
+    jobs: &[&spotify_queue::ArtistHydrationJob],
+) -> Result<()> {
+    for job in jobs {
+        spotify_queue::complete_artist_hydration(&state.db, &job.artist_id).await?;
+    }
+    Ok(())
+}
+
+async fn fail_jobs(
+    state: &AppState,
+    jobs: &[&spotify_queue::ArtistHydrationJob],
+    error: &str,
+) -> Result<()> {
+    for job in jobs {
+        spotify_queue::fail_artist_hydration(
+            &state.db,
+            &job.artist_id,
+            job.user_id,
+            job.attempts,
+            error,
+        )
+        .await?;
+    }
+    Ok(())
 }

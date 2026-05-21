@@ -13,11 +13,11 @@
     TopArtist,
     TopTrack,
   } from '../../lib/api/types';
-  import { chartColor, formatCountValue, formatDurationValue } from '../../lib/charts/theme';
   import { formatDateTime, formatDuration } from '../../lib/date/format';
   import { transitionHref, viewTransitionName } from '../../lib/images';
   import { selectedStatsRange, statsRangeSelectionKey, type StatsRangeSelection } from '../../lib/stores/stats-range';
   import CoverArt from '../media/CoverArt.svelte';
+  import StatsDayDistributionChart from '../stats/StatsDayDistributionChart.svelte';
   import StatsRangePicker from '../stats/StatsRangePicker.svelte';
   import * as Card from '../ui/card';
 
@@ -42,7 +42,6 @@
   let history: HistoryEvent[] = initialOverview?.history ?? [];
 
   let loading = initialOverview === null;
-  let mounted = false;
   let refreshing = false;
   let error: string | null = null;
   let requestId = 0;
@@ -58,30 +57,7 @@
     comparison_label: null,
   };
 
-  const hourChartWidth = 720;
-  const hourChartHeight = 260;
-  const hourChartPadding = { top: 16, right: 14, bottom: 34, left: 42 };
-  const hourChartColors = {
-    plays: chartColor(0),
-    minutes: chartColor(1),
-  };
-
-  $: hourChartData = Array.from({ length: 24 }, (_, hour) => {
-    const point = hours.find((item) => item.hour === hour);
-    return {
-      label: formatHour(hour),
-      plays: point?.count ?? 0,
-      minutes: (point?.duration_ms ?? 0) / 60_000,
-    };
-  });
-  $: hourPlotWidth = hourChartWidth - hourChartPadding.left - hourChartPadding.right;
-  $: hourPlotHeight = hourChartHeight - hourChartPadding.top - hourChartPadding.bottom;
-  $: hourGroupWidth = hourPlotWidth / hourChartData.length;
-  $: maxHourValue = Math.max(1, ...hourChartData.flatMap((point) => [point.plays, point.minutes]));
-  $: hourChartTicks = [0, Math.ceil(maxHourValue / 2), Math.ceil(maxHourValue)];
-
   onMount(() => {
-    mounted = true;
     applyStatsRangeSelection(get(selectedStatsRange), false);
     unsubscribeStatsRange = selectedStatsRange.subscribe((selection) => {
       const key = statsRangeSelectionKey(selection);
@@ -258,13 +234,6 @@
     return `${formatNumber(Math.round((ms ?? 0) / 60_000))} min`;
   }
 
-  function formatHour(hour: number) {
-    if (hourFormat === '24') return `${String(hour).padStart(2, '0')}:00`;
-    const suffix = hour < 12 ? 'AM' : 'PM';
-    const value = hour % 12 || 12;
-    return `${value} ${suffix}`;
-  }
-
   function historyTransition(event: HistoryEvent): string {
     return viewTransitionName(event.track_id, `overview-history-${event.id}`);
   }
@@ -277,30 +246,6 @@
     return viewTransitionName(artist.id, `overview-best-artist-${activeRange.range}-${artist.id}`);
   }
 
-  function hourGroupX(index: number): number {
-    return hourChartPadding.left + index * hourGroupWidth;
-  }
-
-  function hourBarWidth(): number {
-    return Math.max(3, hourGroupWidth * 0.28);
-  }
-
-  function hourBarHeight(value: number): number {
-    return (value / maxHourValue) * hourPlotHeight;
-  }
-
-  function hourBarY(value: number): number {
-    return hourChartPadding.top + hourPlotHeight - hourBarHeight(value);
-  }
-
-  function hourTickY(value: number): number {
-    return hourChartPadding.top + hourPlotHeight - (value / maxHourValue) * hourPlotHeight;
-  }
-
-  function formatHourDataValue(value: number, key: 'plays' | 'minutes'): string {
-    if (key === 'minutes') return formatDurationValue(value * 60_000);
-    return `${formatCountValue(value)} plays`;
-  }
 </script>
 
 <section class="overview-stack" aria-busy={refreshing}>
@@ -337,7 +282,7 @@
     <section class="summary-grid" aria-label={`${activeRange.label} summary`}>
       <Card.Root class="metric-card" size="sm">
         <Card.Header>
-          <Card.Title>Songs listened</Card.Title>
+          <Card.Title>Listens</Card.Title>
         </Card.Header>
         <Card.Content>
           <strong>{formatNumber(summary.total_listens)}</strong>
@@ -359,7 +304,7 @@
 
       <Card.Root class="metric-card" size="sm">
         <Card.Header>
-          <Card.Title>Artists listened</Card.Title>
+          <Card.Title>Different artists</Card.Title>
         </Card.Header>
         <Card.Content>
           <strong>{formatNumber(summary.unique_artists)}</strong>
@@ -374,7 +319,7 @@
       <div class="spotlight-stack" aria-label={`${activeRange.label} highlights`}>
         <Card.Root class="feature-card" size="sm">
         <Card.Header>
-          <Card.Title>Best artist</Card.Title>
+          <Card.Title>Top artist</Card.Title>
         </Card.Header>
         <Card.Content>
           {#if bestArtist}
@@ -385,7 +330,7 @@
                 <div class="stats-line">
                   <span>{formatNumber(bestArtist.count)} listens</span>
                   <span>{formatMinutes(bestArtist.duration_ms)}</span>
-                  <span>{formatNumber(bestArtistStats?.unique_tracks)} different songs</span>
+                  <span>{formatNumber(bestArtistStats?.unique_tracks)} different tracks</span>
                 </div>
               </div>
             </div>
@@ -397,7 +342,7 @@
 
         <Card.Root class="feature-card" size="sm">
         <Card.Header>
-          <Card.Title>Best song</Card.Title>
+          <Card.Title>Top track</Card.Title>
         </Card.Header>
         <Card.Content>
           {#if bestSong}
@@ -407,7 +352,7 @@
                 <a class="entity-title" href={`/track/${bestSong.id}`}>{bestSong.name}</a>
                 <span class="muted-line">{bestSong.artist_name} · {bestSong.album_name}</span>
                 <div class="stats-line">
-                  <span>{formatNumber(bestSong.count)} times</span>
+                  <span>{formatNumber(bestSong.count)} listens</span>
                   <span>{formatMinutes(bestSong.duration_ms)}</span>
                 </div>
               </div>
@@ -419,61 +364,7 @@
         </Card.Root>
       </div>
 
-      <Card.Root class="clock-card" size="sm">
-      <Card.Header>
-        <Card.Description>{hourFormat === '24' ? '24-hour format' : '12-hour format'}</Card.Description>
-        <Card.Title>Listening distribution over the day</Card.Title>
-      </Card.Header>
-      <Card.Content>
-        {#if hours.length === 0}
-          <p class="state">No hourly listening data for this range.</p>
-        {:else if !mounted}
-          <div class="skeleton chart-loading" aria-hidden="true"></div>
-        {:else}
-          <div
-            class="hour-chart"
-            role="img"
-            aria-label={`Listening distribution by local hour, ${hourFormat}-hour format`}
-            style={`--hour-plays-color: ${hourChartColors.plays}; --hour-time-color: ${hourChartColors.minutes};`}
-          >
-            <svg viewBox={`0 0 ${hourChartWidth} ${hourChartHeight}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-              {#each hourChartTicks as tick}
-                <g>
-                  <line class="hour-grid-line" x1={hourChartPadding.left} x2={hourChartWidth - hourChartPadding.right} y1={hourTickY(tick)} y2={hourTickY(tick)} />
-                  <text class="hour-axis-label" x={hourChartPadding.left - 8} y={hourTickY(tick) + 4} text-anchor="end">{formatCountValue(tick)}</text>
-                </g>
-              {/each}
-              {#each hourChartData as point, index}
-                <g>
-                  <rect class="hour-bar plays" x={hourGroupX(index) + hourGroupWidth * 0.18} y={hourBarY(point.plays)} width={hourBarWidth()} height={hourBarHeight(point.plays)} rx="2" fill={hourChartColors.plays}>
-                    <title>{point.label}: {formatHourDataValue(point.plays, 'plays')}</title>
-                  </rect>
-                  <rect class="hour-bar minutes" x={hourGroupX(index) + hourGroupWidth * 0.54} y={hourBarY(point.minutes)} width={hourBarWidth()} height={hourBarHeight(point.minutes)} rx="2" fill={hourChartColors.minutes}>
-                    <title>{point.label}: {formatHourDataValue(point.minutes, 'minutes')}</title>
-                  </rect>
-                  {#if index % 4 === 0}
-                    <text class="hour-axis-label" x={hourGroupX(index) + hourGroupWidth * 0.5} y={hourChartHeight - 10} text-anchor="middle">{point.label}</text>
-                  {/if}
-                </g>
-              {/each}
-            </svg>
-            <div class="hour-legend" aria-hidden="true">
-              <span><i class="plays-key"></i> Plays</span>
-              <span><i class="time-key"></i> Time</span>
-            </div>
-          </div>
-          <table class="sr-only">
-            <caption>Hourly listening distribution data</caption>
-            <thead><tr><th scope="col">Hour</th><th scope="col">Plays</th><th scope="col">Listening time in minutes</th></tr></thead>
-            <tbody>
-              {#each hourChartData as point}
-                <tr><td>{point.label}</td><td>{point.plays}</td><td>{Math.round(point.minutes)}</td></tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
-      </Card.Content>
-      </Card.Root>
+      <StatsDayDistributionChart points={hours} {hourFormat} className="clock-card" />
     </section>
 
     <Card.Root class="history-card" size="sm">
@@ -630,89 +521,6 @@
   :global(.clock-card) {
     width: 100%;
     height: 100%;
-  }
-
-  .hour-chart {
-    display: grid;
-    gap: 0.5rem;
-    width: 100%;
-    min-height: 15.75rem;
-  }
-
-  .hour-chart svg {
-    width: 100%;
-    min-height: 13.6rem;
-    overflow: visible;
-  }
-
-  .hour-grid-line {
-    stroke: color-mix(in srgb, var(--color-border) 68%, transparent);
-    stroke-width: 1;
-  }
-
-  .hour-axis-label {
-    fill: var(--color-muted);
-    font-size: 0.68rem;
-    font-weight: 760;
-  }
-
-  .hour-bar {
-    shape-rendering: crispEdges;
-  }
-
-  .hour-bar.plays {
-    fill: rgb(113 184 128);
-  }
-
-  .hour-bar.minutes {
-    fill: rgb(190 147 86);
-  }
-
-  .hour-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.7rem;
-    color: var(--color-muted);
-    font-size: 0.76rem;
-    font-weight: 800;
-  }
-
-  .hour-legend span {
-    display: inline-flex;
-    gap: 0.32rem;
-    align-items: center;
-  }
-
-  .hour-legend i {
-    width: 0.5rem;
-    height: 0.5rem;
-    border-radius: 999px;
-  }
-
-  .hour-legend i.plays-key {
-    background: rgb(113 184 128);
-  }
-
-  .hour-legend i.time-key {
-    background: rgb(190 147 86);
-  }
-
-  @supports (color: oklch(0.7 0.1 142)) {
-    .hour-bar.plays {
-      fill: var(--hour-plays-color);
-    }
-
-    .hour-bar.minutes {
-      fill: var(--hour-time-color);
-    }
-
-    .hour-legend i.plays-key {
-      background: var(--hour-plays-color);
-    }
-
-    .hour-legend i.time-key {
-      background: var(--hour-time-color);
-    }
   }
 
   .history-list {

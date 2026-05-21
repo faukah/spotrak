@@ -70,10 +70,10 @@ fn cookie_value_from_headers(headers: &HeaderMap, name: &str) -> Option<String> 
         };
         for part in header.split(';') {
             let trimmed = part.trim();
-            if let Ok(cookie) = Cookie::parse(trimmed.to_owned()) {
-                if cookie.name() == name {
-                    return Some(cookie.value().to_owned());
-                }
+            if let Ok(cookie) = Cookie::parse(trimmed.to_owned())
+                && cookie.name() == name
+            {
+                return Some(cookie.value().to_owned());
             }
         }
     }

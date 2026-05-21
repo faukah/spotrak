@@ -22,17 +22,17 @@ pub fn artist_ids_from_recently_played(items: &[SpotifyRecentlyPlayedItem]) -> V
     let mut ids = Vec::new();
     for item in items {
         for artist in &item.track.artists {
-            if let Some(id) = artist.id.as_deref().filter(|id| !id.trim().is_empty()) {
-                if seen.insert(id.to_owned()) {
-                    ids.push(id.to_owned());
-                }
+            if let Some(id) = artist.id.as_deref().filter(|id| !id.trim().is_empty())
+                && seen.insert(id.to_owned())
+            {
+                ids.push(id.to_owned());
             }
         }
         for artist in &item.track.album.artists {
-            if let Some(id) = artist.id.as_deref().filter(|id| !id.trim().is_empty()) {
-                if seen.insert(id.to_owned()) {
-                    ids.push(id.to_owned());
-                }
+            if let Some(id) = artist.id.as_deref().filter(|id| !id.trim().is_empty())
+                && seen.insert(id.to_owned())
+            {
+                ids.push(id.to_owned());
             }
         }
     }
@@ -131,12 +131,7 @@ pub async fn ingest_recently_played(
     tx.commit().await?;
 
     if inserted > 0 {
-        response_cache::invalidate_namespace(
-            &state.db,
-            response_cache::STATS_OVERVIEW_NAMESPACE,
-            user_id,
-        )
-        .await?;
+        response_cache::invalidate_stats(&state.db, user_id).await?;
         let artist_ids = artist_ids_from_recently_played(items);
         let missing = catalog::artists_missing_images(&state.db, &artist_ids).await?;
         spotify_queue::enqueue_artist_hydration(&state.db, user_id, &missing).await?;

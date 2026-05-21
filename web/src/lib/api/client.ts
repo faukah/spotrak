@@ -137,6 +137,8 @@ function setCachedGet(path: string, value: unknown): void {
   }
 }
 
-export function loginUrl(): string {
-  return `${API_ENDPOINT}/api/v1/auth/spotify/start`;
+export function loginUrl(next?: string | null): string {
+  const url = new URL(`${API_ENDPOINT}/api/v1/auth/spotify/start`);
+  if (next) url.searchParams.set('next', next);
+  return url.toString();
 }

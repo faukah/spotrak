@@ -14,7 +14,7 @@ use crate::{
     },
     dto::requests::SearchQuery,
     error::{AppError, Result},
-    repositories::{catalog, listening_events, response_cache, search, spotify_queue},
+    repositories::{catalog, listening_events, response_cache, search, settings},
     state::AppState,
 };
 
@@ -58,14 +58,7 @@ pub async fn artist(
     Path(id): Path<String>,
 ) -> Result<Json<ArtistDetail>> {
     let user = current_user(&headers, &state).await?;
-    let detail = catalog::artist(&state.db, user.id, &id).await?;
-    if let Ok(missing) = catalog::artists_missing_images(&state.db, std::slice::from_ref(&id)).await
-    {
-        if !missing.is_empty() {
-            spotify_queue::enqueue_artist_hydration(&state.db, user.id, &missing).await?;
-        }
-    }
-    Ok(Json(detail))
+    Ok(Json(catalog::artist(&state.db, user.id, &id).await?))
 }
 
 #[utoipa::path(
@@ -80,12 +73,7 @@ pub async fn blacklist_artist(
 ) -> Result<axum::http::StatusCode> {
     let user = current_user(&headers, &state).await?;
     catalog::blacklist_artist(&state.db, user.id, &id).await?;
-    response_cache::invalidate_namespace(
-        &state.db,
-        response_cache::STATS_OVERVIEW_NAMESPACE,
-        user.id,
-    )
-    .await?;
+    response_cache::invalidate_stats(&state.db, user.id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -101,12 +89,7 @@ pub async fn unblacklist_artist(
 ) -> Result<axum::http::StatusCode> {
     let user = current_user(&headers, &state).await?;
     catalog::unblacklist_artist(&state.db, user.id, &id).await?;
-    response_cache::invalidate_namespace(
-        &state.db,
-        response_cache::STATS_OVERVIEW_NAMESPACE,
-        user.id,
-    )
-    .await?;
+    response_cache::invalidate_stats(&state.db, user.id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
@@ -122,6 +105,24 @@ pub async fn album(
 ) -> Result<Json<AlbumDetail>> {
     let _ = current_user(&headers, &state).await?;
     Ok(Json(catalog::album(&state.db, &id).await?))
+}
+
+async fn entity_bounds(
+    state: &AppState,
+    user_id: uuid::Uuid,
+    query: &IntervalQuery,
+) -> Result<(
+    Option<chrono::DateTime<chrono::Utc>>,
+    Option<chrono::DateTime<chrono::Utc>>,
+)> {
+    let user_settings = settings::get(&state.db, user_id).await?;
+    let timezone = user_settings
+        .timezone
+        .as_deref()
+        .unwrap_or_else(|| state.config.timezone.name())
+        .parse::<chrono_tz::Tz>()
+        .map_err(|_| AppError::validation("user timezone must be an IANA timezone name"))?;
+    query.resolved_bounds(timezone)
 }
 
 #[utoipa::path(
@@ -157,12 +158,13 @@ pub async fn track_stats(
     query.validate()?;
     catalog::track(&state.db, &id).await?;
     let user = current_user(&headers, &state).await?;
+    let (start, end) = entity_bounds(&state, user.id, &query).await?;
     let stats = listening_events::entity_stats(
         &state.db,
         user.id,
         listening_events::EntityFilter::Track(&id),
-        query.start,
-        query.end,
+        start,
+        end,
     )
     .await?;
     Ok(Json(stats))
@@ -183,12 +185,13 @@ pub async fn artist_stats(
     query.validate()?;
     let user = current_user(&headers, &state).await?;
     catalog::artist(&state.db, user.id, &id).await?;
+    let (start, end) = entity_bounds(&state, user.id, &query).await?;
     let stats = listening_events::entity_stats(
         &state.db,
         user.id,
         listening_events::EntityFilter::Artist(&id),
-        query.start,
-        query.end,
+        start,
+        end,
     )
     .await?;
     Ok(Json(stats))
@@ -209,12 +212,13 @@ pub async fn album_stats(
     query.validate()?;
     catalog::album(&state.db, &id).await?;
     let user = current_user(&headers, &state).await?;
+    let (start, end) = entity_bounds(&state, user.id, &query).await?;
     let stats = listening_events::entity_stats(
         &state.db,
         user.id,
         listening_events::EntityFilter::Album(&id),
-        query.start,
-        query.end,
+        start,
+        end,
     )
     .await?;
     Ok(Json(stats))

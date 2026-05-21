@@ -6,9 +6,12 @@ use uuid::Uuid;
 
 use crate::error::{AppError, Result};
 
-#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+pub type TimeBounds = (Option<DateTime<Utc>>, Option<DateTime<Utc>>);
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TimeSplit {
+    #[default]
     All,
     Year,
     Month,
@@ -17,23 +20,12 @@ pub enum TimeSplit {
     Hour,
 }
 
-impl Default for TimeSplit {
-    fn default() -> Self {
-        Self::All
-    }
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Metric {
+    #[default]
     Count,
     Duration,
-}
-
-impl Default for Metric {
-    fn default() -> Self {
-        Self::Count
-    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema)]
@@ -49,21 +41,16 @@ pub struct EffectiveUserContext {
     pub public: bool,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum StatsRangeKey {
+    #[default]
     Today,
     Week,
     Month,
     Year,
     SelectedYear,
     All,
-}
-
-impl Default for StatsRangeKey {
-    fn default() -> Self {
-        Self::Today
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
@@ -251,10 +238,7 @@ pub struct IntervalQuery {
 }
 
 impl IntervalQuery {
-    pub fn resolved_bounds(
-        &self,
-        timezone: Tz,
-    ) -> crate::error::Result<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)> {
+    pub fn resolved_bounds(&self, timezone: Tz) -> crate::error::Result<TimeBounds> {
         if let Some(range) = self.range {
             let resolved = resolve_stats_range(
                 timezone,
@@ -269,26 +253,26 @@ impl IntervalQuery {
     }
 
     pub fn validate(&self) -> crate::error::Result<()> {
-        if let (Some(start), Some(end)) = (self.start, self.end) {
-            if start >= end {
-                return Err(crate::error::AppError::validation(
-                    "start must be before end",
-                ));
-            }
+        if let (Some(start), Some(end)) = (self.start, self.end)
+            && start >= end
+        {
+            return Err(crate::error::AppError::validation(
+                "start must be before end",
+            ));
         }
-        if let Some(limit) = self.limit {
-            if !(1..=100).contains(&limit) {
-                return Err(crate::error::AppError::validation(
-                    "limit must be between 1 and 100",
-                ));
-            }
+        if let Some(limit) = self.limit
+            && !(1..=100).contains(&limit)
+        {
+            return Err(crate::error::AppError::validation(
+                "limit must be between 1 and 100",
+            ));
         }
-        if let Some(offset) = self.offset {
-            if offset < 0 {
-                return Err(crate::error::AppError::validation(
-                    "offset must be positive",
-                ));
-            }
+        if let Some(offset) = self.offset
+            && offset < 0
+        {
+            return Err(crate::error::AppError::validation(
+                "offset must be positive",
+            ));
         }
         Ok(())
     }

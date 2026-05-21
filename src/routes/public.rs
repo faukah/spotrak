@@ -10,10 +10,12 @@ use uuid::Uuid;
 use crate::{
     domain::{
         catalog::{AlbumDetail, ArtistDetail, TrackDetail},
+        settings::StatsDisplayPreferences,
         stats::{
             AlbumReleaseYearsStats, BucketedTopArtist, DiversityTimelinePoint, EntityStats,
             FeatureAverageStats, FeatureTimelinePoint, HistoryEvent, HourRepartitionPoint,
-            HourlyTopArtist, SummaryStats, TimelinePoint, TopAlbum, TopArtist, TopTrack,
+            HourlyTopArtist, StatsDashboardResponse, SummaryStats, TimelinePoint, TopAlbum,
+            TopArtist, TopTrack,
         },
         time::IntervalQuery,
     },
@@ -25,7 +27,12 @@ use crate::{
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/public/{token}/history", get(history))
+        .route(
+            "/public/{token}/stats/display-preferences",
+            get(display_preferences),
+        )
         .route("/public/{token}/stats/summary", get(summary))
+        .route("/public/{token}/stats/dashboard", get(dashboard))
         .route(
             "/public/{token}/stats/listening-over-time",
             get(listening_over_time),
@@ -75,6 +82,27 @@ async fn user_id_for_token(state: &AppState, token: &str) -> Result<Uuid> {
         .ok_or(AppError::Unauthorized)
 }
 
+async fn ensure_public_track(state: &AppState, user_id: Uuid, id: &str) -> Result<()> {
+    if catalog::user_has_track(&state.db, user_id, id).await? {
+        return Ok(());
+    }
+    Err(AppError::NotFound)
+}
+
+async fn ensure_public_artist(state: &AppState, user_id: Uuid, id: &str) -> Result<()> {
+    if catalog::user_has_artist(&state.db, user_id, id).await? {
+        return Ok(());
+    }
+    Err(AppError::NotFound)
+}
+
+async fn ensure_public_album(state: &AppState, user_id: Uuid, id: &str) -> Result<()> {
+    if catalog::user_has_album(&state.db, user_id, id).await? {
+        return Ok(());
+    }
+    Err(AppError::NotFound)
+}
+
 fn parse_timezone(value: &str) -> Result<Tz> {
     value
         .parse::<Tz>()
@@ -98,6 +126,40 @@ async fn user_timezone(state: &AppState, user_id: Uuid) -> Result<String> {
     Ok(user_settings
         .timezone
         .unwrap_or_else(|| state.config.timezone.name().to_owned()))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/public/{token}/stats/display-preferences",
+    responses((status = 200, description = "Public stats display preferences", body = StatsDisplayPreferences))
+)]
+pub async fn display_preferences(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> Result<Json<StatsDisplayPreferences>> {
+    let user_id = user_id_for_token(&state, &token).await?;
+    let user_settings = settings::get(&state.db, user_id).await?;
+    Ok(Json(StatsDisplayPreferences {
+        hour_format: user_settings.hour_format,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/public/{token}/stats/dashboard",
+    params(IntervalQuery),
+    responses((status = 200, description = "Public stats dashboard data", body = StatsDashboardResponse))
+)]
+pub async fn dashboard(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    Query(query): Query<IntervalQuery>,
+) -> Result<Json<StatsDashboardResponse>> {
+    query.validate()?;
+    let user_id = user_id_for_token(&state, &token).await?;
+    Ok(Json(
+        crate::routes::stats::dashboard_for_user(&state, user_id, query).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -413,7 +475,8 @@ pub async fn track(
     State(state): State<AppState>,
     Path((token, id)): Path<(String, String)>,
 ) -> Result<Json<TrackDetail>> {
-    let _ = user_id_for_token(&state, &token).await?;
+    let user_id = user_id_for_token(&state, &token).await?;
+    ensure_public_track(&state, user_id, &id).await?;
     Ok(Json(catalog::track(&state.db, &id).await?))
 }
 
@@ -427,6 +490,7 @@ pub async fn artist(
     Path((token, id)): Path<(String, String)>,
 ) -> Result<Json<ArtistDetail>> {
     let user_id = user_id_for_token(&state, &token).await?;
+    ensure_public_artist(&state, user_id, &id).await?;
     Ok(Json(catalog::artist(&state.db, user_id, &id).await?))
 }
 
@@ -439,7 +503,8 @@ pub async fn album(
     State(state): State<AppState>,
     Path((token, id)): Path<(String, String)>,
 ) -> Result<Json<AlbumDetail>> {
-    let _ = user_id_for_token(&state, &token).await?;
+    let user_id = user_id_for_token(&state, &token).await?;
+    ensure_public_album(&state, user_id, &id).await?;
     Ok(Json(catalog::album(&state.db, &id).await?))
 }
 
@@ -456,6 +521,7 @@ pub async fn track_stats(
 ) -> Result<Json<EntityStats>> {
     query.validate()?;
     let user_id = user_id_for_token(&state, &token).await?;
+    ensure_public_track(&state, user_id, &id).await?;
     let (start, end) = interval_bounds(&state, user_id, &query).await?;
     Ok(Json(
         listening_events::entity_stats(
@@ -482,6 +548,7 @@ pub async fn artist_stats(
 ) -> Result<Json<EntityStats>> {
     query.validate()?;
     let user_id = user_id_for_token(&state, &token).await?;
+    ensure_public_artist(&state, user_id, &id).await?;
     let (start, end) = interval_bounds(&state, user_id, &query).await?;
     Ok(Json(
         listening_events::entity_stats(
@@ -508,6 +575,7 @@ pub async fn album_stats(
 ) -> Result<Json<EntityStats>> {
     query.validate()?;
     let user_id = user_id_for_token(&state, &token).await?;
+    ensure_public_album(&state, user_id, &id).await?;
     let (start, end) = interval_bounds(&state, user_id, &query).await?;
     Ok(Json(
         listening_events::entity_stats(

@@ -20,6 +20,23 @@ pub struct OverviewStatsResponse {
     pub timezone: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct StatsDashboardResponse {
+    pub available_years: Vec<i32>,
+    pub summary: SummaryStats,
+    pub top_artists: Vec<TopArtist>,
+    pub artist_distribution: Vec<BucketedTopArtist>,
+    pub hours: Vec<HourRepartitionPoint>,
+    pub hourly_artists: Vec<HourlyTopArtist>,
+    pub timeline: Vec<TimelinePoint>,
+    pub diversity: Vec<DiversityTimelinePoint>,
+    pub release_years: AlbumReleaseYearsStats,
+    pub feature_average: FeatureAverageStats,
+    pub feature_timeline: Vec<FeatureTimelinePoint>,
+    pub hour_format: String,
+    pub timezone: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct SummaryStats {
     pub total_listens: i64,

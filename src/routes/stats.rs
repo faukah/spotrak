@@ -16,10 +16,12 @@ use crate::{
             AlbumReleaseYearsStats, BucketedTopAlbum, BucketedTopArtist, BucketedTopTrack,
             DiversityTimelinePoint, FeatureAverageStats, FeatureRatioStats, FeatureTimelinePoint,
             HistoryEvent, HourRepartitionPoint, HourlyTopArtist, LongestSession,
-            OverviewStatsResponse, SummaryStats, TimelinePoint, TopAlbum, TopArtist, TopTrack,
+            OverviewStatsResponse, StatsDashboardResponse, SummaryStats, TimelinePoint, TopAlbum,
+            TopArtist, TopTrack,
         },
         time::{
-            IntervalQuery, Metric, RangeQuery, StatsRangeResponse, TimeSplit, resolve_stats_range,
+            IntervalQuery, Metric, RangeQuery, StatsRangeKey, StatsRangeResponse, TimeSplit,
+            resolve_stats_range,
         },
     },
     error::{AppError, Result},
@@ -32,6 +34,7 @@ pub fn router() -> Router<AppState> {
         .route("/history", get(history))
         .route("/stats/range", get(stats_range))
         .route("/stats/overview", get(overview))
+        .route("/stats/dashboard", get(dashboard))
         .route("/stats/summary", get(summary))
         .route("/stats/listening-over-time", get(listening_over_time))
         .route("/stats/diversity-over-time", get(diversity_over_time))
@@ -230,6 +233,169 @@ pub async fn overview(
     .await?;
 
     Ok(Json(overview))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/stats/dashboard",
+    params(IntervalQuery),
+    responses((status = 200, description = "Stats dashboard data", body = StatsDashboardResponse))
+)]
+pub async fn dashboard(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<IntervalQuery>,
+) -> Result<Json<StatsDashboardResponse>> {
+    query.validate()?;
+    let user = current_user(&headers, &state).await?;
+    Ok(Json(dashboard_for_user(&state, user.id, query).await?))
+}
+
+pub(crate) async fn dashboard_for_user(
+    state: &AppState,
+    user_id: uuid::Uuid,
+    query: IntervalQuery,
+) -> Result<StatsDashboardResponse> {
+    query.validate()?;
+    let user_settings = settings::get(&state.db, user_id).await?;
+    let timezone_name = user_settings
+        .timezone
+        .clone()
+        .unwrap_or_else(|| state.config.timezone.name().to_owned());
+    let hour_format = user_settings.hour_format.clone();
+    let timezone = parse_timezone(&timezone_name)?;
+    let (start, end) = query.resolved_bounds(timezone)?;
+    let current_local_year = Utc::now().with_timezone(&timezone).year();
+    let cache_key = stats_dashboard_cache_key(
+        &timezone_name,
+        &hour_format,
+        &query,
+        &start,
+        &end,
+        current_local_year,
+    );
+
+    if let Some(cached) = response_cache::get(
+        &state.db,
+        response_cache::STATS_DASHBOARD_NAMESPACE,
+        user_id,
+        &cache_key,
+    )
+    .await?
+    {
+        return Ok(cached);
+    }
+
+    let (
+        available_years,
+        summary,
+        top_artists,
+        artist_distribution,
+        hours,
+        hourly_artists,
+        timeline,
+        diversity,
+        release_years,
+        feature_average,
+        feature_timeline,
+    ) = tokio::try_join!(
+        available_years(state, user_id, timezone, &timezone_name),
+        listening_events::summary(&state.db, user_id, start, end),
+        listening_events::top_artists(&state.db, user_id, Metric::Count, start, end, 8, 0),
+        listening_events::top_artists_by_bucket_with_other(
+            &state.db,
+            user_id,
+            &timezone_name,
+            query.split,
+            Metric::Count,
+            start,
+            end,
+            8,
+        ),
+        listening_events::hour_repartition(&state.db, user_id, &timezone_name, start, end),
+        listening_events::top_artists_by_hour(
+            &state.db,
+            user_id,
+            &timezone_name,
+            Metric::Count,
+            start,
+            end,
+            1,
+        ),
+        listening_events::timeline(&state.db, user_id, &timezone_name, query.split, start, end),
+        listening_events::diversity_timeline(
+            &state.db,
+            user_id,
+            &timezone_name,
+            query.split,
+            start,
+            end,
+        ),
+        listening_events::album_release_years(&state.db, user_id, start, end),
+        listening_events::feature_average(&state.db, user_id, start, end),
+        listening_events::feature_timeline(
+            &state.db,
+            user_id,
+            &timezone_name,
+            query.split,
+            start,
+            end
+        ),
+    )?;
+
+    let dashboard = StatsDashboardResponse {
+        available_years,
+        summary,
+        top_artists,
+        artist_distribution,
+        hours,
+        hourly_artists,
+        timeline,
+        diversity,
+        release_years,
+        feature_average,
+        feature_timeline,
+        hour_format,
+        timezone: timezone_name,
+    };
+
+    if matches!(
+        query.range,
+        Some(StatsRangeKey::All | StatsRangeKey::SelectedYear)
+    ) {
+        response_cache::set(
+            &state.db,
+            response_cache::STATS_DASHBOARD_NAMESPACE,
+            user_id,
+            &cache_key,
+            &dashboard,
+            Some(Duration::days(370)),
+        )
+        .await?;
+    }
+
+    Ok(dashboard)
+}
+
+fn stats_dashboard_cache_key(
+    timezone: &str,
+    hour_format: &str,
+    query: &IntervalQuery,
+    start: &Option<DateTime<Utc>>,
+    end: &Option<DateTime<Utc>>,
+    current_local_year: i32,
+) -> String {
+    format!(
+        "v1:{timezone}:{hour_format}:{current_local_year}:{:?}:{}:{:?}:{}:{}",
+        query.range,
+        query
+            .year
+            .map(|year| year.to_string())
+            .unwrap_or_else(|| "-".to_owned()),
+        query.split,
+        cache_time_part(start),
+        cache_time_part(end),
+    )
 }
 
 fn overview_cache_key(
@@ -570,7 +736,7 @@ pub async fn top_albums_by_bucket(
     get,
     path = "/api/v1/stats/hour-repartition/tracks",
     params(IntervalQuery),
-    responses((status = 200, description = "Track plays by local hour", body = Vec<HourRepartitionPoint>))
+    responses((status = 200, description = "Listening events by local hour", body = Vec<HourRepartitionPoint>))
 )]
 pub async fn hour_repartition_tracks(
     State(state): State<AppState>,
@@ -584,7 +750,7 @@ pub async fn hour_repartition_tracks(
     get,
     path = "/api/v1/stats/hour-repartition/artists",
     params(IntervalQuery),
-    responses((status = 200, description = "Artist plays by local hour", body = Vec<HourRepartitionPoint>))
+    responses((status = 200, description = "Listening events by local hour; alias of the tracks endpoint", body = Vec<HourRepartitionPoint>))
 )]
 pub async fn hour_repartition_artists(
     State(state): State<AppState>,
@@ -598,7 +764,7 @@ pub async fn hour_repartition_artists(
     get,
     path = "/api/v1/stats/hour-repartition/albums",
     params(IntervalQuery),
-    responses((status = 200, description = "Album plays by local hour", body = Vec<HourRepartitionPoint>))
+    responses((status = 200, description = "Listening events by local hour; alias of the tracks endpoint", body = Vec<HourRepartitionPoint>))
 )]
 pub async fn hour_repartition_albums(
     State(state): State<AppState>,

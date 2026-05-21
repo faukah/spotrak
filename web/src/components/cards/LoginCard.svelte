@@ -1,6 +1,7 @@
 <script lang="ts">
   import { loginUrl } from '../../lib/api/client';
   export let message = 'Sign in to continue.';
+  export let next: string | null = null;
   import * as Card from '../ui/card';
   import { Button } from '../ui/button';
 </script>
@@ -11,7 +12,7 @@
     <Card.Description>{message} Connect once. The app keeps a private, local history and stats database.</Card.Description>
   </Card.Header>
   <Card.Content>
-    <Button href={loginUrl()} size="lg">Continue with Spotify</Button>
+    <Button href={loginUrl(next)} size="lg">Continue with Spotify</Button>
   </Card.Content>
 </Card.Root>
 

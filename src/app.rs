@@ -3,7 +3,7 @@ use axum::{
     Json, Router,
     body::Body,
     extract::{DefaultBodyLimit, Request},
-    http::{HeaderName, HeaderValue, Method, StatusCode, header},
+    http::{HeaderName, HeaderValue, Method, StatusCode, Uri, header},
     middleware::{self, Next},
     response::Response,
     routing::get,
@@ -11,6 +11,7 @@ use axum::{
 use tower_http::{
     compression::CompressionLayer,
     cors::{AllowOrigin, Any, CorsLayer},
+    set_header::SetResponseHeaderLayer,
     trace::TraceLayer,
 };
 use utoipa::OpenApi;
@@ -32,7 +33,20 @@ pub fn build(state: AppState) -> Router {
         .layer(CompressionLayer::new())
         .layer(DefaultBodyLimit::max(DEFAULT_BODY_LIMIT))
         .layer(cors_layer(&state.config.cors))
-        .layer(TraceLayer::new_for_http())
+        .layer(SetResponseHeaderLayer::if_not_present(
+            HeaderName::from_static("referrer-policy"),
+            HeaderValue::from_static("no-referrer"),
+        ))
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &Request<Body>| {
+                tracing::debug_span!(
+                    "request",
+                    method = %request.method(),
+                    uri = %redacted_request_uri(request.uri()),
+                    version = ?request.version()
+                )
+            }),
+        )
         .with_state(state)
 }
 
@@ -42,6 +56,22 @@ async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
 
 async fn not_found() -> AppError {
     AppError::NotFound
+}
+
+fn redacted_request_uri(uri: &Uri) -> String {
+    let path = uri.path();
+    if let Some(rest) = path.strip_prefix("/api/v1/public/") {
+        return match rest.split_once('/') {
+            Some((_, tail)) => format!("/api/v1/public/{{token}}/{tail}"),
+            None => "/api/v1/public/{token}".to_owned(),
+        };
+    }
+    if path.starts_with("/api/v1/auth/spotify/") {
+        return path.to_owned();
+    }
+    uri.path_and_query()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| path.to_owned())
 }
 
 async fn csrf_guard(request: Request<Body>, next: Next) -> Result<Response, StatusCode> {

@@ -1,19 +1,19 @@
 use std::collections::HashMap;
 
-use chrono_tz::Tz;
-
 use crate::{
     domain::{
-        import::ImportJob,
+        import::{ImportFile, ImportJob},
         spotify::{SpotifyRecentlyPlayedItem, SpotifyTrack},
     },
     error::{AppError, Result},
-    repositories::{catalog, imports, response_cache, settings, spotify_queue, users},
+    repositories::{catalog, imports, response_cache, spotify_queue, users},
     services::{ingestion, poller, spotify_client},
     state::AppState,
 };
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use serde::Deserialize;
+
+const MIN_IMPORT_PLAY_MS: i32 = 30_000;
 
 #[derive(Debug, Clone)]
 struct ImportCandidate {
@@ -22,6 +22,11 @@ struct ImportCandidate {
     query: Option<String>,
     track_name: Option<String>,
     artist_name: Option<String>,
+}
+
+enum LocalTrackResolution {
+    Cached(Option<Box<SpotifyTrack>>),
+    Uncached,
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,21 +79,13 @@ pub async fn process_job(state: &AppState, job: ImportJob) -> Result<()> {
         return Err(AppError::validation("import job has no files"));
     }
 
-    let user_settings = settings::get(&state.db, job.user_id).await?;
-    let import_timezone = user_settings
-        .timezone
-        .as_deref()
-        .unwrap_or_else(|| state.config.timezone.name())
-        .parse::<Tz>()
-        .map_err(|_| AppError::validation("user timezone must be an IANA timezone name"))?;
-
     let mut candidates = Vec::new();
-    for file in files {
+    for file in &files {
         let bytes = tokio::fs::read(&file.path).await.map_err(|err| {
             AppError::internal(format!("failed to read {}: {err}", file.original_name))
         })?;
         let parsed = match job.import_type.as_str() {
-            "privacy" => parse_privacy_file(&bytes, import_timezone)?,
+            "privacy" => parse_privacy_file(&bytes)?,
             "full-privacy" => parse_full_privacy_file(&bytes)?,
             other => {
                 return Err(AppError::validation(format!(
@@ -103,91 +100,193 @@ pub async fn process_job(state: &AppState, job: ImportJob) -> Result<()> {
     imports::mark_progress(&state.db, job.id, total, 0).await?;
     tracing::info!(job_id = %job.id, total, "parsed import candidates");
 
-    let user = users::find_by_id(&state.db, job.user_id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    let (mut access_token, token_source) = (
-        poller::valid_access_token(state, &user).await?,
-        "valid_user_token",
-    );
-    tracing::info!(
-        job_id = %job.id,
-        user_id = %user.id,
-        token_source,
-        spotify_market = ?state.config.spotify_market,
-        "import metadata lookups will use Spotify user access token and single-item Spotify endpoints"
-    );
-
     let mut cache = HashMap::<String, Option<SpotifyTrack>>::new();
     let source = match job.import_type.as_str() {
         "privacy" => "privacy-import",
         _ => "full-privacy-import",
     };
     let mut pending = Vec::<SpotifyRecentlyPlayedItem>::new();
+    let mut unresolved = Vec::<ImportCandidate>::new();
     let mut current = 0_i32;
+    let mut scanned = 0_i32;
+    let mut locally_imported = 0_i32;
+    let mut locally_skipped = 0_i32;
+
     for chunk in candidates.chunks(250) {
         if imports::get_any(&state.db, job.id).await?.status == "cancelled" {
             return Ok(());
         }
 
         for candidate in chunk {
-            if current % 25 == 0 && imports::get_any(&state.db, job.id).await?.status == "cancelled"
+            scanned += 1;
+            if scanned % 25 == 0 && imports::get_any(&state.db, job.id).await?.status == "cancelled"
             {
                 return Ok(());
             }
 
-            if let Some(track_id) = candidate.track_id.as_deref() {
-                if catalog::has_user_track_play_near(
+            if let Some(track_id) = candidate.track_id.as_deref()
+                && catalog::has_user_track_play_near(
                     &state.db,
                     job.user_id,
                     track_id,
                     candidate.played_at,
                 )
                 .await?
+            {
+                current += 1;
+                locally_skipped += 1;
+                record_progress(state, job.id, total, current, pending.len(), cache.len()).await?;
+                continue;
+            }
+
+            match resolve_cached_track(state, candidate, &mut cache).await? {
+                LocalTrackResolution::Cached(Some(track)) => {
+                    pending.push(SpotifyRecentlyPlayedItem {
+                        track: *track,
+                        played_at: candidate.played_at,
+                    });
+                    current += 1;
+                    locally_imported += 1;
+                    if pending.len() >= 250 {
+                        insert_items(state, job.user_id, job.id, source, &mut pending).await?;
+                    }
+                    record_progress(state, job.id, total, current, pending.len(), cache.len())
+                        .await?;
+                }
+                LocalTrackResolution::Cached(None) => {
+                    current += 1;
+                    locally_skipped += 1;
+                    record_progress(state, job.id, total, current, pending.len(), cache.len())
+                        .await?;
+                }
+                LocalTrackResolution::Uncached => unresolved.push(candidate.clone()),
+            }
+        }
+    }
+
+    insert_items(state, job.user_id, job.id, source, &mut pending).await?;
+    tracing::info!(
+        job_id = %job.id,
+        total,
+        current,
+        locally_imported,
+        locally_skipped,
+        deferred_for_spotify = unresolved.len(),
+        cache_size = cache.len(),
+        "finished local import cache pass"
+    );
+
+    if !unresolved.is_empty() {
+        let user = users::find_by_id(&state.db, job.user_id)
+            .await?
+            .ok_or(AppError::NotFound)?;
+        let (mut access_token, token_source) = (
+            poller::valid_access_token(state, &user).await?,
+            "valid_user_token",
+        );
+        tracing::info!(
+            job_id = %job.id,
+            user_id = %user.id,
+            token_source,
+            spotify_market = ?state.config.spotify_market,
+            remaining = unresolved.len(),
+            "remaining import metadata lookups will use Spotify user access token and single-item Spotify endpoints"
+        );
+
+        for chunk in unresolved.chunks(250) {
+            if imports::get_any(&state.db, job.id).await?.status == "cancelled" {
+                return Ok(());
+            }
+
+            for candidate in chunk {
+                if current % 25 == 0
+                    && imports::get_any(&state.db, job.id).await?.status == "cancelled"
+                {
+                    return Ok(());
+                }
+
+                if let Some(track_id) = candidate.track_id.as_deref()
+                    && catalog::has_user_track_play_near(
+                        &state.db,
+                        job.user_id,
+                        track_id,
+                        candidate.played_at,
+                    )
+                    .await?
                 {
                     current += 1;
                     record_progress(state, job.id, total, current, pending.len(), cache.len())
                         .await?;
                     continue;
                 }
-            }
 
-            if current == 0 || current % 100 == 0 {
-                tracing::debug!(
-                    job_id = %job.id,
-                    next = current + 1,
-                    total,
-                    cache_size = cache.len(),
-                    "resolving import metadata"
-                );
-            }
+                if current == 0 || current % 100 == 0 {
+                    tracing::debug!(
+                        job_id = %job.id,
+                        next = current + 1,
+                        total,
+                        cache_size = cache.len(),
+                        "resolving import metadata via Spotify"
+                    );
+                }
 
-            if let Some(track) = resolve_track(
-                state,
-                job.user_id,
-                &mut access_token,
-                token_source,
-                candidate,
-                &mut cache,
-            )
-            .await?
-            {
-                pending.push(SpotifyRecentlyPlayedItem {
-                    track,
-                    played_at: candidate.played_at,
-                });
-            }
+                if let Some(track) = resolve_track(
+                    state,
+                    job.user_id,
+                    &mut access_token,
+                    token_source,
+                    candidate,
+                    &mut cache,
+                )
+                .await?
+                {
+                    pending.push(SpotifyRecentlyPlayedItem {
+                        track,
+                        played_at: candidate.played_at,
+                    });
+                }
 
-            current += 1;
-            if pending.len() >= 250 {
-                insert_items(state, job.user_id, job.id, source, &mut pending).await?;
+                current += 1;
+                if pending.len() >= 250 {
+                    insert_items(state, job.user_id, job.id, source, &mut pending).await?;
+                }
+                record_progress(state, job.id, total, current, pending.len(), cache.len()).await?;
             }
-            record_progress(state, job.id, total, current, pending.len(), cache.len()).await?;
+        }
+        insert_items(state, job.user_id, job.id, source, &mut pending).await?;
+    }
+
+    imports::mark_success(&state.db, job.id, total, current).await?;
+    if let Err(error) = cleanup_import_files(state, job.id, &files).await {
+        tracing::warn!(?error, job_id = %job.id, "failed to clean up raw import files after successful import");
+    }
+
+    Ok(())
+}
+
+async fn cleanup_import_files(
+    state: &AppState,
+    job_id: uuid::Uuid,
+    files: &[ImportFile],
+) -> Result<()> {
+    for file in files {
+        match tokio::fs::remove_file(&file.path).await {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                tracing::warn!(?error, path = %file.path, "failed to delete raw import file after successful import");
+            }
         }
     }
-    insert_items(state, job.user_id, job.id, source, &mut pending).await?;
-    imports::mark_success(&state.db, job.id, total, current).await?;
-
+    let job_dir = state.config.import_dir.join(job_id.to_string());
+    match tokio::fs::remove_dir_all(&job_dir).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            tracing::debug!(?error, path = %job_dir.display(), "failed to delete import directory after successful import");
+        }
+    }
+    imports::delete_files(&state.db, job_id).await?;
     Ok(())
 }
 
@@ -242,12 +341,7 @@ async fn insert_items(
     tx.commit().await?;
 
     if inserted > 0 {
-        response_cache::invalidate_namespace(
-            &state.db,
-            response_cache::STATS_OVERVIEW_NAMESPACE,
-            user_id,
-        )
-        .await?;
+        response_cache::invalidate_stats(&state.db, user_id).await?;
         let missing = catalog::artists_missing_images(&state.db, &artist_ids).await?;
         spotify_queue::enqueue_artist_hydration(&state.db, user_id, &missing).await?;
     }
@@ -255,12 +349,12 @@ async fn insert_items(
     Ok(())
 }
 
-fn parse_privacy_file(bytes: &[u8], timezone: Tz) -> Result<Vec<ImportCandidate>> {
+fn parse_privacy_file(bytes: &[u8]) -> Result<Vec<ImportCandidate>> {
     let entries = serde_json::from_slice::<Vec<PrivacyEntry>>(bytes)
         .map_err(|err| AppError::validation(format!("invalid privacy JSON: {err}")))?;
     let mut candidates = Vec::new();
     for entry in entries {
-        if entry.ms_played.unwrap_or_default() <= 0 {
+        if entry.ms_played.unwrap_or_default() < MIN_IMPORT_PLAY_MS {
             continue;
         }
         let Some(end_time) = entry.end_time else {
@@ -272,7 +366,7 @@ fn parse_privacy_file(bytes: &[u8], timezone: Tz) -> Result<Vec<ImportCandidate>
         let Some(artist_name) = entry.artist_name.filter(|value| !value.trim().is_empty()) else {
             continue;
         };
-        let played_at = parse_privacy_time(&end_time, timezone)?;
+        let played_at = parse_privacy_time(&end_time)?;
         candidates.push(ImportCandidate {
             played_at,
             track_id: None,
@@ -289,7 +383,7 @@ fn parse_full_privacy_file(bytes: &[u8]) -> Result<Vec<ImportCandidate>> {
         .map_err(|err| AppError::validation(format!("invalid full privacy JSON: {err}")))?;
     let mut candidates = Vec::new();
     for entry in entries {
-        if entry.ms_played.unwrap_or_default() <= 0 {
+        if entry.ms_played.unwrap_or_default() < MIN_IMPORT_PLAY_MS {
             continue;
         }
         let Some(played_at) = entry.ts else {
@@ -326,6 +420,67 @@ fn parse_full_privacy_file(bytes: &[u8]) -> Result<Vec<ImportCandidate>> {
         });
     }
     Ok(candidates)
+}
+
+async fn resolve_cached_track(
+    state: &AppState,
+    candidate: &ImportCandidate,
+    cache: &mut HashMap<String, Option<SpotifyTrack>>,
+) -> Result<LocalTrackResolution> {
+    if let Some(track_id) = &candidate.track_id {
+        let key = format!("id:{track_id}");
+        if let Some(cached) = cache.get(&key) {
+            return Ok(LocalTrackResolution::Cached(cached.clone().map(Box::new)));
+        }
+        if let Some(track) = catalog::spotify_track_from_cache(&state.db, track_id).await? {
+            tracing::debug!(
+                track_id,
+                "using cached Spotify track metadata from database"
+            );
+            cache.insert(key, Some(track.clone()));
+            return Ok(LocalTrackResolution::Cached(Some(Box::new(track))));
+        }
+        return Ok(LocalTrackResolution::Uncached);
+    }
+
+    if let Some(query) = &candidate.query {
+        let key = format!("q:{query}");
+        if let Some(cached) = cache.get(&key) {
+            return Ok(LocalTrackResolution::Cached(cached.clone().map(Box::new)));
+        }
+        if let (Some(track_name), Some(artist_name)) =
+            (&candidate.track_name, &candidate.artist_name)
+            && let Some(track) =
+                catalog::spotify_track_from_name_artist_cache(&state.db, track_name, artist_name)
+                    .await?
+        {
+            tracing::debug!(
+                track_name,
+                artist_name,
+                "using cached Spotify search result from database"
+            );
+            cache.insert(key, Some(track.clone()));
+            return Ok(LocalTrackResolution::Cached(Some(Box::new(track))));
+        }
+        let query_key = normalize_query_key(query);
+        if let Some(hit) = catalog::spotify_search_cache(&state.db, &query_key).await? {
+            match hit {
+                catalog::SpotifySearchCacheHit::Found(track) => {
+                    let track = (*track).clone();
+                    tracing::debug!(query, "using cached Spotify search result");
+                    cache.insert(key, Some(track.clone()));
+                    return Ok(LocalTrackResolution::Cached(Some(Box::new(track))));
+                }
+                catalog::SpotifySearchCacheHit::NotFound => {
+                    tracing::debug!(query, "using cached negative Spotify search result");
+                    cache.insert(key, None);
+                    return Ok(LocalTrackResolution::Cached(None));
+                }
+            }
+        }
+    }
+
+    Ok(LocalTrackResolution::Uncached)
 }
 
 async fn resolve_track(
@@ -393,24 +548,23 @@ async fn resolve_track(
         }
         if let (Some(track_name), Some(artist_name)) =
             (&candidate.track_name, &candidate.artist_name)
-        {
-            if let Some(track) =
+            && let Some(track) =
                 catalog::spotify_track_from_name_artist_cache(&state.db, track_name, artist_name)
                     .await?
-            {
-                tracing::debug!(
-                    track_name,
-                    artist_name,
-                    "using cached Spotify search result from database"
-                );
-                cache.insert(key, Some(track.clone()));
-                return Ok(Some(track));
-            }
+        {
+            tracing::debug!(
+                track_name,
+                artist_name,
+                "using cached Spotify search result from database"
+            );
+            cache.insert(key, Some(track.clone()));
+            return Ok(Some(track));
         }
         let query_key = normalize_query_key(query);
         if let Some(hit) = catalog::spotify_search_cache(&state.db, &query_key).await? {
             match hit {
                 catalog::SpotifySearchCacheHit::Found(track) => {
+                    let track = (*track).clone();
                     tracing::debug!(query, "using cached Spotify search result");
                     cache.insert(key, Some(track.clone()));
                     return Ok(Some(track));
@@ -503,14 +657,10 @@ async fn search_track_with_reauth(
     }
 }
 
-fn parse_privacy_time(value: &str, timezone: Tz) -> Result<chrono::DateTime<Utc>> {
+fn parse_privacy_time(value: &str) -> Result<chrono::DateTime<Utc>> {
     let parsed = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M")
         .map_err(|err| AppError::validation(format!("invalid privacy endTime {value}: {err}")))?;
-    timezone
-        .from_local_datetime(&parsed)
-        .earliest()
-        .map(|value| value.with_timezone(&Utc))
-        .ok_or_else(|| AppError::validation(format!("invalid local privacy endTime {value}")))
+    Ok(Utc.from_utc_datetime(&parsed))
 }
 
 fn normalize_query_key(query: &str) -> String {
@@ -531,8 +681,13 @@ fn is_spotify_rate_limited(error: &AppError) -> bool {
 fn track_id_from_uri(uri: &str) -> Option<String> {
     uri.strip_prefix("spotify:track:")
         .or_else(|| uri.split("/track/").nth(1))
-        .map(|value| value.split('?').next().unwrap_or(value).to_owned())
-        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.split('?').next().unwrap_or(value))
+        .filter(|value| is_spotify_id(value))
+        .map(ToOwned::to_owned)
+}
+
+fn is_spotify_id(value: &str) -> bool {
+    value.len() == 22 && value.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
 
 #[cfg(test)]
@@ -541,17 +696,44 @@ mod tests {
 
     #[test]
     fn parses_privacy_import_rows() {
-        let json = br#"[{"endTime":"2024-01-01 12:34","artistName":"Artist","trackName":"Song","msPlayed":12345}]"#;
-        let rows = parse_privacy_file(json, chrono_tz::UTC).unwrap();
+        let json = br#"[{"endTime":"2024-01-01 12:34","artistName":"Artist","trackName":"Song","msPlayed":30000}]"#;
+        let rows = parse_privacy_file(json).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].query.as_deref(), Some("track:Song artist:Artist"));
     }
 
     #[test]
+    fn skips_short_import_rows() {
+        let privacy = br#"[{"endTime":"2024-01-01 12:34","artistName":"Artist","trackName":"Song","msPlayed":29999}]"#;
+        assert!(parse_privacy_file(privacy).unwrap().is_empty());
+
+        let full_privacy = br#"[{"ts":"2024-01-01T12:34:00Z","ms_played":29999,"master_metadata_track_name":"Song","master_metadata_album_artist_name":"Artist","spotify_track_uri":"spotify:track:abc123"}]"#;
+        assert!(parse_full_privacy_file(full_privacy).unwrap().is_empty());
+    }
+
+    #[test]
+    fn parses_privacy_import_timestamps_as_utc() {
+        let rows = parse_privacy_file(
+            br#"[{"endTime":"2024-01-01 12:34","artistName":"Artist","trackName":"Song","msPlayed":30000}]"#,
+        )
+        .unwrap();
+        assert_eq!(rows[0].played_at.to_rfc3339(), "2024-01-01T12:34:00+00:00");
+    }
+
+    #[test]
     fn parses_full_privacy_track_uri() {
         assert_eq!(
-            track_id_from_uri("spotify:track:abc123").as_deref(),
-            Some("abc123")
+            track_id_from_uri("spotify:track:6KzkqZqhUBEsWYJJa2aBOd").as_deref(),
+            Some("6KzkqZqhUBEsWYJJa2aBOd")
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_full_privacy_track_uri() {
+        assert_eq!(track_id_from_uri("spotify:track:abc/def"), None);
+        assert_eq!(
+            track_id_from_uri("https://open.spotify.com/track/6KzkqZqhUBEsWYJJa2aBOd/extra"),
+            None
         );
     }
 }

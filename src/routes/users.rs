@@ -62,12 +62,7 @@ pub async fn update_settings(
 ) -> Result<Json<MeResponse>> {
     let user = current_user(&headers, &state).await?;
     let user_settings = settings::update(&state.db, user.id, &patch).await?;
-    response_cache::invalidate_namespace(
-        &state.db,
-        response_cache::STATS_OVERVIEW_NAMESPACE,
-        user.id,
-    )
-    .await?;
+    response_cache::invalidate_stats(&state.db, user.id).await?;
     let public_sharing_enabled = public_tokens::enabled_for_user(&state.db, user.id).await?;
     Ok(Json(MeResponse {
         user: user.into(),
@@ -91,10 +86,10 @@ pub async fn update_profile(
     Json(patch): Json<ProfilePatchRequest>,
 ) -> Result<Json<MeResponse>> {
     let user = current_user(&headers, &state).await?;
-    if let Some(username) = &patch.username {
-        if username.trim().is_empty() {
-            return Err(AppError::validation("username must not be empty"));
-        }
+    if let Some(username) = &patch.username
+        && username.trim().is_empty()
+    {
+        return Err(AppError::validation("username must not be empty"));
     }
     let updated = users::update_profile(&state.db, user.id, patch.username.as_deref()).await?;
     let user_settings = settings::get(&state.db, user.id).await?;

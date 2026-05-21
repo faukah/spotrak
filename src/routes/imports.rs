@@ -34,26 +34,26 @@ pub fn router() -> Router<AppState> {
 #[utoipa::path(
     post,
     path = "/api/v1/imports/privacy",
-    responses((status = 200, description = "Queued privacy import", body = ImportJobResponse))
+    responses((status = 200, description = "Queued privacy imports", body = ImportJobsResponse))
 )]
 pub async fn upload_privacy(
     State(state): State<AppState>,
     headers: HeaderMap,
     multipart: Multipart,
-) -> Result<Json<ImportJobResponse>> {
+) -> Result<Json<ImportJobsResponse>> {
     upload(state, headers, multipart, "privacy").await
 }
 
 #[utoipa::path(
     post,
     path = "/api/v1/imports/full-privacy",
-    responses((status = 200, description = "Queued full privacy import", body = ImportJobResponse))
+    responses((status = 200, description = "Queued full privacy imports", body = ImportJobsResponse))
 )]
 pub async fn upload_full_privacy(
     State(state): State<AppState>,
     headers: HeaderMap,
     multipart: Multipart,
-) -> Result<Json<ImportJobResponse>> {
+) -> Result<Json<ImportJobsResponse>> {
     upload(state, headers, multipart, "full-privacy").await
 }
 
@@ -62,19 +62,13 @@ async fn upload(
     headers: HeaderMap,
     mut multipart: Multipart,
     import_type: &str,
-) -> Result<Json<ImportJobResponse>> {
+) -> Result<Json<ImportJobsResponse>> {
     let user = current_user(&headers, &state).await?;
     tokio::fs::create_dir_all(&state.config.import_dir)
         .await
         .map_err(|err| AppError::internal(err.to_string()))?;
 
-    let mut job = imports::create_job(&state.db, user.id, import_type).await?;
-    let job_dir = state.config.import_dir.join(job.id.to_string());
-    tokio::fs::create_dir_all(&job_dir)
-        .await
-        .map_err(|err| AppError::internal(err.to_string()))?;
-
-    let mut filenames = Vec::new();
+    let mut jobs = Vec::new();
     while let Some(mut field) = multipart
         .next_field()
         .await
@@ -84,6 +78,12 @@ async fn upload(
             continue;
         };
         let safe_name = sanitize_filename(&original)?;
+        let mut job = imports::create_job(&state.db, user.id, import_type).await?;
+        let job_dir = state.config.import_dir.join(job.id.to_string());
+        tokio::fs::create_dir_all(&job_dir)
+            .await
+            .map_err(|err| AppError::internal(err.to_string()))?;
+
         let path = job_dir.join(format!("{}-{}", Uuid::new_v4(), safe_name));
         let mut file = tokio::fs::File::create(&path)
             .await
@@ -98,6 +98,8 @@ async fn upload(
                 i64::try_from(chunk.len()).map_err(|err| AppError::internal(err.to_string()))?;
             if size as u64 > state.config.max_import_cache_size {
                 let _ = tokio::fs::remove_file(&path).await;
+                let _ = imports::delete(&state.db, user.id, job.id).await;
+                let _ = tokio::fs::remove_dir_all(&job_dir).await;
                 return Err(AppError::validation(
                     "uploaded file exceeds MAX_IMPORT_CACHE_SIZE",
                 ));
@@ -111,46 +113,58 @@ async fn upload(
             .map_err(|err| AppError::internal(err.to_string()))?;
         if size == 0 {
             let _ = tokio::fs::remove_file(&path).await;
+            let _ = imports::delete(&state.db, user.id, job.id).await;
+            let _ = tokio::fs::remove_dir_all(&job_dir).await;
             continue;
         }
+
         imports::add_file(&state.db, job.id, &path.to_string_lossy(), &original, size).await?;
-        filenames.push(original);
+        job = imports::update_metadata(
+            &state.db,
+            job.id,
+            json!({
+                "name": original,
+                "filenames": [original],
+            }),
+        )
+        .await?;
+        jobs.push(job.into());
     }
 
-    if filenames.is_empty() {
-        let _ = imports::delete(&state.db, user.id, job.id).await;
-        let _ = tokio::fs::remove_dir_all(&job_dir).await;
+    if jobs.is_empty() {
         return Err(AppError::validation(
             "upload must include at least one file",
         ));
     }
 
-    let name = import_name(&filenames);
-    job = imports::update_metadata(
-        &state.db,
-        job.id,
-        json!({
-            "name": name,
-            "filenames": filenames,
-        }),
-    )
-    .await?;
-
+    let queued_jobs = jobs.len();
     let worker_state = state.clone();
     tokio::spawn(async move {
-        match crate::services::imports::process_queued_once(&worker_state).await {
-            Ok(processed) if processed > 0 => {
-                worker_state
-                    .metrics
-                    .inc_import_jobs_processed(processed as u64);
-                tracing::debug!(processed, "processed import jobs after upload")
+        let mut processed_total = 0_usize;
+        for _ in 0..queued_jobs {
+            match crate::services::imports::process_queued_once(&worker_state).await {
+                Ok(processed) if processed > 0 => {
+                    processed_total += processed;
+                    worker_state
+                        .metrics
+                        .inc_import_jobs_processed(processed as u64);
+                }
+                Ok(_) => break,
+                Err(error) => {
+                    tracing::warn!(?error, "immediate import worker failed");
+                    break;
+                }
             }
-            Ok(_) => {}
-            Err(error) => tracing::warn!(?error, "immediate import worker failed"),
+        }
+        if processed_total > 0 {
+            tracing::debug!(
+                processed = processed_total,
+                "processed import jobs after upload"
+            );
         }
     });
 
-    Ok(Json(job.into()))
+    Ok(Json(ImportJobsResponse { imports: jobs }))
 }
 
 #[utoipa::path(
@@ -243,16 +257,33 @@ pub async fn delete_imported_history(
     headers: HeaderMap,
 ) -> Result<axum::http::StatusCode> {
     let user = current_user(&headers, &state).await?;
+    let import_jobs = imports::list(&state.db, user.id).await?;
+    let mut import_files = Vec::new();
+    for job in &import_jobs {
+        if job.import_type == "privacy" || job.import_type == "full-privacy" {
+            import_files.extend(imports::files(&state.db, job.id).await?);
+        }
+    }
+
     let mut tx = state.db.begin().await?;
     let deleted = listening_events::delete_imported_history(&mut tx, user.id).await?;
     tx.commit().await?;
+    imports::delete_import_jobs_for_user(&state.db, user.id).await?;
+    for file in import_files {
+        if let Err(err) = tokio::fs::remove_file(&file.path).await {
+            tracing::debug!(?err, path = %file.path, "failed to delete raw import file");
+        }
+    }
+    for job in import_jobs {
+        if job.import_type == "privacy" || job.import_type == "full-privacy" {
+            let job_dir = state.config.import_dir.join(job.id.to_string());
+            if let Err(err) = tokio::fs::remove_dir_all(&job_dir).await {
+                tracing::debug!(?err, path = %job_dir.display(), "failed to delete import directory");
+            }
+        }
+    }
     if deleted > 0 {
-        response_cache::invalidate_namespace(
-            &state.db,
-            response_cache::STATS_OVERVIEW_NAMESPACE,
-            user.id,
-        )
-        .await?;
+        response_cache::invalidate_stats(&state.db, user.id).await?;
     }
     tracing::info!(user_id = %user.id, deleted, "deleted imported listening history");
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -271,6 +302,7 @@ pub async fn delete_import(
     let user = current_user(&headers, &state).await?;
     let files = imports::files(&state.db, id).await?;
     if imports::delete(&state.db, user.id, id).await? {
+        response_cache::invalidate_stats(&state.db, user.id).await?;
         for file in files {
             if let Err(err) = tokio::fs::remove_file(&file.path).await {
                 tracing::debug!(?err, path = %file.path, "failed to delete import file");

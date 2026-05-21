@@ -104,6 +104,14 @@ pub async fn files(pool: &PgPool, job_id: Uuid) -> Result<Vec<ImportFile>> {
     Ok(files)
 }
 
+pub async fn delete_files(pool: &PgPool, job_id: Uuid) -> Result<u64> {
+    let result = sqlx::query("DELETE FROM import_files WHERE job_id = $1")
+        .bind(job_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}
+
 pub async fn list(pool: &PgPool, user_id: Uuid) -> Result<Vec<ImportJob>> {
     let jobs = sqlx::query_as::<_, ImportJob>(
         r#"
@@ -156,6 +164,20 @@ pub async fn set_status(
     .await?
     .ok_or(AppError::NotFound)?;
     Ok(job)
+}
+
+pub async fn delete_import_jobs_for_user(pool: &PgPool, user_id: Uuid) -> Result<u64> {
+    let result = sqlx::query(
+        r#"
+        DELETE FROM import_jobs
+        WHERE user_id = $1
+          AND import_type IN ('privacy', 'full-privacy')
+        "#,
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 pub async fn delete(pool: &PgPool, user_id: Uuid, job_id: Uuid) -> Result<bool> {

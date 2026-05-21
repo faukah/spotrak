@@ -758,59 +758,10 @@ fn build_session(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use chrono::TimeZone;
-
-    fn event(track_id: &str, minute: u32, duration_ms: i32) -> HistoryEvent {
-        HistoryEvent {
-            id: Uuid::new_v4(),
-            track_id: track_id.to_owned(),
-            track_name: track_id.to_owned(),
-            album_id: "album".to_owned(),
-            album_name: "Album".to_owned(),
-            artist_id: "artist".to_owned(),
-            artist_name: "Artist".to_owned(),
-            image_url: None,
-            duration_ms,
-            played_at: Utc.with_ymd_and_hms(2024, 1, 1, 12, minute, 0).unwrap(),
-            source: "seed".to_owned(),
-        }
-    }
-
-    #[test]
-    fn longest_sessions_split_after_ten_minute_gap_from_previous_end() {
-        let sessions = build_longest_sessions(
-            vec![
-                event("a", 0, 180_000),
-                event("b", 5, 180_000),
-                event("c", 30, 180_000),
-            ],
-            10,
-        );
-
-        assert_eq!(sessions.len(), 2);
-        assert_eq!(sessions[0].listens, 2);
-        assert_eq!(sessions[1].listens, 1);
-    }
-
-    #[test]
-    fn longest_sessions_are_returned_by_duration_desc() {
-        let sessions = build_longest_sessions(
-            vec![
-                event("short", 0, 60_000),
-                event("long-a", 20, 300_000),
-                event("long-b", 25, 300_000),
-            ],
-            1,
-        );
-
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].tracks[0].track_id, "long-a");
-    }
-}
-
+#[allow(
+    clippy::too_many_arguments,
+    reason = "bucket queries are thin repository wrappers around API filters"
+)]
 pub async fn top_tracks_by_bucket(
     pool: &PgPool,
     user_id: Uuid,
@@ -864,6 +815,10 @@ pub async fn top_tracks_by_bucket(
     Ok(rows)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "bucket queries are thin repository wrappers around API filters"
+)]
 pub async fn top_artists_by_bucket(
     pool: &PgPool,
     user_id: Uuid,
@@ -919,6 +874,10 @@ pub async fn top_artists_by_bucket(
     Ok(rows)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "bucket queries are thin repository wrappers around API filters"
+)]
 pub async fn top_artists_by_bucket_with_other(
     pool: &PgPool,
     user_id: Uuid,
@@ -1004,6 +963,10 @@ pub async fn top_artists_by_bucket_with_other(
     Ok(rows)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "bucket queries are thin repository wrappers around API filters"
+)]
 pub async fn top_albums_by_bucket(
     pool: &PgPool,
     user_id: Uuid,
@@ -1077,5 +1040,58 @@ fn bucket_grain(split: TimeSplit) -> &'static str {
         TimeSplit::Week => "week",
         TimeSplit::Day => "day",
         TimeSplit::Hour => "hour",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn event(track_id: &str, minute: u32, duration_ms: i32) -> HistoryEvent {
+        HistoryEvent {
+            id: Uuid::new_v4(),
+            track_id: track_id.to_owned(),
+            track_name: track_id.to_owned(),
+            album_id: "album".to_owned(),
+            album_name: "Album".to_owned(),
+            artist_id: "artist".to_owned(),
+            artist_name: "Artist".to_owned(),
+            image_url: None,
+            duration_ms,
+            played_at: Utc.with_ymd_and_hms(2024, 1, 1, 12, minute, 0).unwrap(),
+            source: "seed".to_owned(),
+        }
+    }
+
+    #[test]
+    fn longest_sessions_split_after_ten_minute_gap_from_previous_end() {
+        let sessions = build_longest_sessions(
+            vec![
+                event("a", 0, 180_000),
+                event("b", 5, 180_000),
+                event("c", 30, 180_000),
+            ],
+            10,
+        );
+
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0].listens, 2);
+        assert_eq!(sessions[1].listens, 1);
+    }
+
+    #[test]
+    fn longest_sessions_are_returned_by_duration_desc() {
+        let sessions = build_longest_sessions(
+            vec![
+                event("short", 0, 60_000),
+                event("long-a", 20, 300_000),
+                event("long-b", 25, 300_000),
+            ],
+            1,
+        );
+
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].tracks[0].track_id, "long-a");
     }
 }

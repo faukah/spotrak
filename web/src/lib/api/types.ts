@@ -38,6 +38,10 @@ export interface UserSettings {
   updated_at: string;
 }
 
+export interface StatsDisplayPreferences {
+  hour_format: "12" | "24";
+}
+
 export interface PublicSharing {
   enabled: boolean;
   token?: string | null;
@@ -217,6 +221,22 @@ export interface OverviewStatsResponse {
   timezone: string;
 }
 
+export interface StatsDashboardResponse {
+  available_years: number[];
+  summary: SummaryStats;
+  top_artists: TopArtist[];
+  artist_distribution: BucketedTopArtist[];
+  hours: HourRepartitionPoint[];
+  hourly_artists: HourlyTopArtist[];
+  timeline: TimelinePoint[];
+  diversity: DiversityTimelinePoint[];
+  release_years: AlbumReleaseYearsStats;
+  feature_average: FeatureAverageStats;
+  feature_timeline: FeatureTimelinePoint[];
+  hour_format: "12" | "24";
+  timezone: string;
+}
+
 export interface AlbumRef {
   id: string;
   name: string;
@@ -273,4 +293,8 @@ export interface ImportJob {
   error_message?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ImportJobsResponse {
+  imports: ImportJob[];
 }

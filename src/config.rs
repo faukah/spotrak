@@ -51,10 +51,14 @@ impl Config {
         let client_endpoint = parse_url("CLIENT_ENDPOINT", &required("CLIENT_ENDPOINT")?)?;
         let spotify_public = required("SPOTIFY_PUBLIC")?;
         let spotify_secret_raw = required("SPOTIFY_SECRET")?;
-        let spotify_token_encryption_key = SecretString::from(
-            optional_non_empty("SPOTIFY_TOKEN_ENCRYPTION_KEY")
-                .unwrap_or_else(|| spotify_secret_raw.clone()),
-        );
+        let spotify_token_encryption_key_raw = required("SPOTIFY_TOKEN_ENCRYPTION_KEY")?;
+        if spotify_token_encryption_key_raw == spotify_secret_raw {
+            return Err(ConfigError::Invalid {
+                name: "SPOTIFY_TOKEN_ENCRYPTION_KEY",
+                message: "must be distinct from SPOTIFY_SECRET".to_owned(),
+            });
+        }
+        let spotify_token_encryption_key = SecretString::from(spotify_token_encryption_key_raw);
         let spotify_secret = SecretString::from(spotify_secret_raw);
         let spotify_market = parse_market(optional_non_empty("SPOTIFY_MARKET"))?;
         let port = parse_or("PORT", 8080)?;
@@ -64,9 +68,10 @@ impl Config {
             "COOKIE_VALIDITY_MS",
             30 * 24 * 60 * 60 * 1000_u64,
         )?);
-        // Spotify no longer supports several bulk metadata endpoints, so imports may
-        // need many single-item requests. Hard-cap throughput at one Spotify request
-        // every five seconds; deployments may configure a larger delay, but not a smaller one.
+        // Some Spotify metadata paths still need single-item requests or fallbacks,
+        // so imports can create long request queues. Hard-cap throughput at one
+        // Spotify request every five seconds; deployments may configure a larger
+        // delay, but not a smaller one.
         let spotify_api_delay_ms = parse_or("SPOTIFY_API_DELAY_MS", 5000_u64)?;
         let spotify_api_delay =
             Duration::from_millis(spotify_api_delay_ms).max(MIN_SPOTIFY_API_DELAY);

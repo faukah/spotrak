@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { Trash2, Upload, XCircle } from '@lucide/svelte';
   import { apiFetch } from '../../lib/api/client';
-  import type { ImportJob } from '../../lib/api/types';
+  import type { ImportJob, ImportJobsResponse } from '../../lib/api/types';
   import * as Card from '../ui/card';
   import { Button } from '../ui/button';
   import { Input } from '../ui/input';
@@ -50,7 +50,7 @@
   async function load(showLoading = true) {
     loading = showLoading;
     try {
-      const response = await apiFetch<{ imports: ImportJob[] }>('/imports');
+      const response = await apiFetch<ImportJobsResponse>('/imports');
       jobs = response.imports;
     } catch (err) {
       error = err instanceof Error ? err.message : 'Unable to load imports';
@@ -66,7 +66,7 @@
     try {
       const form = new FormData();
       Array.from(files).forEach((file) => form.append('files', file));
-      await apiFetch<ImportJob>(`/imports/${importType}`, { method: 'POST', body: form });
+      await apiFetch<ImportJobsResponse>(`/imports/${importType}`, { method: 'POST', body: form });
       files = undefined;
       await load();
     } catch (err) {

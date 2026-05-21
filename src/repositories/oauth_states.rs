@@ -2,9 +2,15 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Utc};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx::{FromRow, PgPool};
 
 use crate::error::Result;
+
+#[derive(Debug, Clone, FromRow)]
+pub struct ConsumedOAuthState {
+    pub code_verifier: String,
+    pub next_path: Option<String>,
+}
 
 pub fn generate_state() -> String {
     random_url_safe_secret()
@@ -36,37 +42,38 @@ pub async fn create(
     pool: &PgPool,
     raw_state: &str,
     code_verifier: &str,
+    next_path: Option<&str>,
     expires_at: DateTime<Utc>,
 ) -> Result<()> {
     let state_hash = hash_state(raw_state);
     sqlx::query(
         r#"
-        INSERT INTO oauth_states (state_hash, code_verifier, expires_at)
-        VALUES ($1, $2, $3)
+        INSERT INTO oauth_states (state_hash, code_verifier, next_path, expires_at)
+        VALUES ($1, $2, $3, $4)
         "#,
     )
     .bind(state_hash)
     .bind(code_verifier)
+    .bind(next_path)
     .bind(expires_at)
     .execute(pool)
     .await?;
     Ok(())
 }
 
-pub async fn consume(pool: &PgPool, raw_state: &str) -> Result<Option<String>> {
+pub async fn consume(pool: &PgPool, raw_state: &str) -> Result<Option<ConsumedOAuthState>> {
     let state_hash = hash_state(raw_state);
-    let code_verifier = sqlx::query_scalar::<_, Option<String>>(
+    let consumed = sqlx::query_as::<_, ConsumedOAuthState>(
         r#"
         DELETE FROM oauth_states
         WHERE state_hash = $1 AND expires_at > now()
-        RETURNING code_verifier
+        RETURNING code_verifier, next_path
         "#,
     )
     .bind(state_hash)
     .fetch_optional(pool)
-    .await?
-    .flatten();
-    Ok(code_verifier)
+    .await?;
+    Ok(consumed)
 }
 
 pub async fn cleanup_expired(pool: &PgPool) -> Result<u64> {

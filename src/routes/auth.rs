@@ -37,13 +37,22 @@ pub struct SpotifyCallbackQuery {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SpotifyStartQuery {
+    pub next: Option<String>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/auth/spotify/start",
+    params(("next" = Option<String>, Query)),
     responses((status = 307, description = "Redirects to Spotify OAuth"))
 )]
-pub async fn spotify_start(State(state): State<AppState>) -> Result<impl IntoResponse> {
-    let login = auth_service::start_spotify_login(&state).await?;
+pub async fn spotify_start(
+    State(state): State<AppState>,
+    Query(query): Query<SpotifyStartQuery>,
+) -> Result<impl IntoResponse> {
+    let login = auth_service::start_spotify_login(&state, sanitize_next_path(query.next)?).await?;
     let mut response = Redirect::temporary(&login.url).into_response();
     response.headers_mut().insert(
         SET_COOKIE,
@@ -79,7 +88,8 @@ pub async fn spotify_callback(
     }
     let login = auth_service::complete_spotify_login(&state, &oauth_state, &code).await?;
 
-    let mut response = Redirect::to(state.config.client_endpoint.as_str()).into_response();
+    let redirect_url = callback_redirect_url(&state, login.next_path.as_deref())?;
+    let mut response = Redirect::to(&redirect_url).into_response();
     response.headers_mut().append(
         SET_COOKIE,
         login_cookie(&state.config, &login.session_token)
@@ -93,6 +103,38 @@ pub async fn spotify_callback(
             .map_err(|err| AppError::internal(format!("invalid Set-Cookie header: {err}")))?,
     );
     Ok(response)
+}
+
+fn sanitize_next_path(next: Option<String>) -> Result<Option<String>> {
+    let Some(next) = next else {
+        return Ok(None);
+    };
+    let next = next.trim();
+    if next.is_empty() {
+        return Ok(None);
+    }
+    if next.starts_with('/')
+        && !next.starts_with("//")
+        && !next.contains('\\')
+        && !next.chars().any(char::is_control)
+    {
+        return Ok(Some(next.chars().take(1024).collect()));
+    }
+    Err(AppError::validation(
+        "login next path must be a relative same-origin path",
+    ))
+}
+
+fn callback_redirect_url(state: &AppState, next_path: Option<&str>) -> Result<String> {
+    let Some(next_path) = next_path else {
+        return Ok(state.config.client_endpoint.as_str().to_owned());
+    };
+    state
+        .config
+        .client_endpoint
+        .join(next_path.trim_start_matches('/'))
+        .map(|url| url.to_string())
+        .map_err(|err| AppError::internal(err.to_string()))
 }
 
 #[utoipa::path(
