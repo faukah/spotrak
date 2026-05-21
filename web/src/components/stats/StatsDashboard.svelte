@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { flip } from 'svelte/animate';
-  import { quintOut } from 'svelte/easing';
-  import { onMount } from 'svelte';
-  import { get } from 'svelte/store';
-  import { fade } from 'svelte/transition';
-  import { apiFetch } from '../../lib/api/client';
+  import { flip } from "svelte/animate";
+  import { quintOut } from "svelte/easing";
+  import { onMount } from "svelte";
+  import { get } from "svelte/store";
+  import { fade } from "svelte/transition";
+  import { apiFetch } from "../../lib/api/client";
   import type {
     AlbumReleaseYearsStats,
     BucketedTopArtist,
@@ -18,27 +18,36 @@
     SummaryStats,
     TimelinePoint,
     TopArtist,
-  } from '../../lib/api/types';
-  import { chartColor, formatCountValue, formatDurationValue, numericValue } from '../../lib/charts/theme';
-  import { formatDuration } from '../../lib/date/format';
-  import { directImageUrl, transitionHref, viewTransitionName } from '../../lib/images';
+  } from "../../lib/api/types";
+  import {
+    chartColor,
+    formatCountValue,
+    formatDurationValue,
+    numericValue,
+  } from "../../lib/charts/theme";
+  import { formatDuration } from "../../lib/date/format";
+  import {
+    directImageUrl,
+    transitionHref,
+    viewTransitionName,
+  } from "../../lib/images";
   import {
     selectedStatsRange,
     statsRangeLabel,
     statsRangeQuery,
     statsRangeSelectionKey,
     type StatsRangeSelection,
-  } from '../../lib/stores/stats-range';
-  import CoverArt from '../media/CoverArt.svelte';
-  import * as Card from '../ui/card';
-  import StatsArtistDistributionChart from './StatsArtistDistributionChart.svelte';
-  import StatsBucketMetricsChart from './StatsBucketMetricsChart.svelte';
-  import StatsDayDistributionChart from './StatsDayDistributionChart.svelte';
-  import StatsHourArtistHeatmap from './StatsHourArtistHeatmap.svelte';
-  import StatsMetricChart from './StatsMetricChart.svelte';
-  import StatsRangePicker from './StatsRangePicker.svelte';
+  } from "../../lib/stores/stats-range";
+  import CoverArt from "../media/CoverArt.svelte";
+  import * as Card from "../ui/card";
+  import StatsArtistDistributionChart from "./StatsArtistDistributionChart.svelte";
+  import StatsBucketMetricsChart from "./StatsBucketMetricsChart.svelte";
+  import StatsDayDistributionChart from "./StatsDayDistributionChart.svelte";
+  import StatsHourArtistHeatmap from "./StatsHourArtistHeatmap.svelte";
+  import StatsMetricChart from "./StatsMetricChart.svelte";
+  import StatsRangePicker from "./StatsRangePicker.svelte";
 
-  type TimeSplit = 'year' | 'month' | 'week' | 'day' | 'hour';
+  type TimeSplit = "year" | "month" | "week" | "day" | "hour";
   type SummaryItem = {
     label: string;
     value: string;
@@ -50,33 +59,33 @@
     rawLabel?: string;
   };
   type StatsPanelKey =
-    | 'summary'
-    | 'artistDistribution'
-    | 'topArtists'
-    | 'dayDistribution'
-    | 'hourArtists'
-    | 'bucketMetrics'
-    | 'releaseYear'
-    | 'featureAverage';
+    | "summary"
+    | "artistDistribution"
+    | "topArtists"
+    | "dayDistribution"
+    | "hourArtists"
+    | "bucketMetrics"
+    | "releaseYear"
+    | "featureAverage";
 
   const STATS_PANEL_KEYS: StatsPanelKey[] = [
-    'summary',
-    'artistDistribution',
-    'topArtists',
-    'dayDistribution',
-    'hourArtists',
-    'bucketMetrics',
-    'releaseYear',
-    'featureAverage',
+    "summary",
+    "artistDistribution",
+    "topArtists",
+    "dayDistribution",
+    "hourArtists",
+    "bucketMetrics",
+    "releaseYear",
+    "featureAverage",
   ];
 
-  export let apiPrefix = '';
-  export let pagePrefix = '';
-  export let initialHourFormat: '12' | '24' = '24';
+  export let apiPrefix = "";
+  export let pagePrefix = "";
+  export let initialHourFormat: "12" | "24" = "24";
 
   const currentYear = new Date().getFullYear();
 
-  let activeRange: StatsRangeSelection = { range: 'all' };
+  let activeRange: StatsRangeSelection = { range: "all" };
   let availableYears: number[] = [currentYear];
   let summary: SummaryStats | null = null;
   let topArtists: TopArtist[] = [];
@@ -88,7 +97,7 @@
   let releaseYears: AlbumReleaseYearsStats | null = null;
   let featureAverage: FeatureAverageStats | null = null;
   let featureTimeline: FeatureTimelinePoint[] = [];
-  let hourFormat: '12' | '24' = initialHourFormat;
+  let hourFormat: "12" | "24" = initialHourFormat;
   let loading = true;
   let refreshing = false;
   let error: string | null = null;
@@ -110,40 +119,54 @@
     ...featureTimeline.map((point) => point.bucket),
   ]);
   $: timelineByBucket = new Map(timeline.map((point) => [point.bucket, point]));
-  $: diversityByBucket = new Map(diversity.map((point) => [point.bucket, point]));
-  $: listensPoints = bucketKeys.map((bucket) => metricPoint(bucket, timelineByBucket.get(bucket)?.count ?? 0));
-  $: timePoints = bucketKeys.map((bucket) => metricPoint(bucket, timelineByBucket.get(bucket)?.duration_ms ?? 0));
-  $: uniqueArtistPoints = bucketKeys.map((bucket) => metricPoint(bucket, diversityByBucket.get(bucket)?.unique_artists ?? 0));
+  $: diversityByBucket = new Map(
+    diversity.map((point) => [point.bucket, point]),
+  );
+  $: listensPoints = bucketKeys.map((bucket) =>
+    metricPoint(bucket, timelineByBucket.get(bucket)?.count ?? 0),
+  );
+  $: timePoints = bucketKeys.map((bucket) =>
+    metricPoint(bucket, timelineByBucket.get(bucket)?.duration_ms ?? 0),
+  );
+  $: uniqueArtistPoints = bucketKeys.map((bucket) =>
+    metricPoint(bucket, diversityByBucket.get(bucket)?.unique_artists ?? 0),
+  );
   $: releaseYearPoints = diversity
-    .filter((point) => point.average_release_year !== null && point.average_release_year !== undefined)
+    .filter(
+      (point) =>
+        point.average_release_year !== null &&
+        point.average_release_year !== undefined,
+    )
     .map((point) => metricPoint(point.bucket, point.average_release_year ?? 0));
-  $: featurePoints = featureTimeline.map((point) => metricPoint(point.bucket, point.average_features_per_song));
+  $: featurePoints = featureTimeline.map((point) =>
+    metricPoint(point.bucket, point.average_features_per_song),
+  );
   $: rangeSummary = buildRangeSummary(summary, releaseYears, featureAverage);
   $: bucketMetrics = [
     {
-      key: 'listens',
-      label: 'Listens',
+      key: "listens",
+      label: "Listens",
       color: chartColor(0),
       points: listensPoints,
-      valueLabel: 'Listens',
+      valueLabel: "Listens",
       formatAxis: formatCountValue,
       formatTooltip: formatListensTooltip,
     },
     {
-      key: 'time',
-      label: 'Time listened',
+      key: "time",
+      label: "Time listened",
       color: chartColor(1),
       points: timePoints,
-      valueLabel: 'Time listened',
+      valueLabel: "Time listened",
       formatAxis: formatDurationValue,
       formatTooltip: formatDurationValue,
     },
     {
-      key: 'artists',
-      label: 'Different artists',
+      key: "artists",
+      label: "Different artists",
       color: chartColor(2),
       points: uniqueArtistPoints,
-      valueLabel: 'Artists',
+      valueLabel: "Artists",
       formatAxis: formatCountValue,
       formatTooltip: formatArtistsTooltip,
     },
@@ -183,13 +206,15 @@
     error = null;
 
     try {
-      const nextDashboard = await apiFetch<StatsDashboardResponse>(statsPath('/stats/dashboard', query, { split }));
+      const nextDashboard = await apiFetch<StatsDashboardResponse>(
+        statsPath("/stats/dashboard", query, { split }),
+      );
 
       if (request !== requestId) return;
       applyDashboard(nextDashboard, range);
     } catch (err) {
       if (request !== requestId) return;
-      error = err instanceof Error ? err.message : 'Unable to load stats';
+      error = err instanceof Error ? err.message : "Unable to load stats";
     } finally {
       if (request === requestId) {
         loading = false;
@@ -198,7 +223,10 @@
     }
   }
 
-  function applyDashboard(nextDashboard: StatsDashboardResponse, range: StatsRangeSelection) {
+  function applyDashboard(
+    nextDashboard: StatsDashboardResponse,
+    range: StatsRangeSelection,
+  ) {
     activeRange = range;
     availableYears = nextDashboard.available_years;
     summary = nextDashboard.summary;
@@ -216,45 +244,56 @@
   }
 
   function panelLoadingState(value: boolean): Record<StatsPanelKey, boolean> {
-    return Object.fromEntries(STATS_PANEL_KEYS.map((key) => [key, value])) as Record<StatsPanelKey, boolean>;
+    return Object.fromEntries(
+      STATS_PANEL_KEYS.map((key) => [key, value]),
+    ) as Record<StatsPanelKey, boolean>;
   }
 
   function watchReducedMotion(): () => void {
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
     const update = () => {
       prefersReducedMotion = query.matches;
     };
     update();
-    query.addEventListener('change', update);
-    return () => query.removeEventListener('change', update);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
   }
 
   function motionDuration(duration: number): number {
     return prefersReducedMotion ? 1 : duration;
   }
 
-  function statsPath(path: string, query: string, extra: Record<string, string | number | boolean> = {}): string {
+  function statsPath(
+    path: string,
+    query: string,
+    extra: Record<string, string | number | boolean> = {},
+  ): string {
     const params = new URLSearchParams(query);
-    for (const [key, value] of Object.entries(extra)) params.set(key, String(value));
+    for (const [key, value] of Object.entries(extra))
+      params.set(key, String(value));
     return `${apiPrefix}${path}?${params.toString()}`;
   }
 
   function splitForRange(range: StatsRangeKey): TimeSplit {
-    if (range === 'today') return 'hour';
-    if (range === 'week' || range === 'month') return 'day';
-    if (range === 'year') return 'week';
-    return 'month';
+    if (range === "today") return "hour";
+    if (range === "week" || range === "month") return "day";
+    if (range === "year") return "week";
+    return "month";
   }
 
   function splitLabel(split: TimeSplit): string {
-    if (split === 'hour') return 'hourly';
-    if (split === 'day') return 'daily';
-    if (split === 'week') return 'weekly';
-    if (split === 'month') return 'monthly';
-    return 'yearly';
+    if (split === "hour") return "hourly";
+    if (split === "day") return "daily";
+    if (split === "week") return "weekly";
+    if (split === "month") return "monthly";
+    return "yearly";
   }
 
-  function buildBucketKeys(selection: StatsRangeSelection, split: TimeSplit, rawBuckets: string[]): string[] {
+  function buildBucketKeys(
+    selection: StatsRangeSelection,
+    split: TimeSplit,
+    rawBuckets: string[],
+  ): string[] {
     const rawDates = rawBuckets
       .map(parseBucketDate)
       .filter((date): date is Date => date !== null);
@@ -263,19 +302,19 @@
     let start: Date | null = null;
     let end: Date | null = null;
 
-    if (selection.range === 'today') {
+    if (selection.range === "today") {
       start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       end = startOfBucket(now, split);
-    } else if (selection.range === 'week') {
-      start = startOfBucket(now, 'week');
+    } else if (selection.range === "week") {
+      start = startOfBucket(now, "week");
       end = startOfBucket(now, split);
-    } else if (selection.range === 'month') {
+    } else if (selection.range === "month") {
       start = new Date(now.getFullYear(), now.getMonth(), 1);
       end = startOfBucket(now, split);
-    } else if (selection.range === 'year') {
+    } else if (selection.range === "year") {
       start = startOfBucket(new Date(now.getFullYear(), 0, 1), split);
       end = startOfBucket(now, split);
-    } else if (selection.range === 'selected-year') {
+    } else if (selection.range === "selected-year") {
       start = startOfBucket(new Date(selectedYear, 0, 1), split);
       end = startOfBucket(new Date(selectedYear, 11, 31, 23), split);
     } else if (rawDates.length > 0) {
@@ -287,7 +326,11 @@
     if (!start || !end || start > end) return rawBuckets.toSorted();
 
     const buckets: string[] = [];
-    for (let cursor = new Date(start); cursor <= end; cursor = addBucket(cursor, split)) {
+    for (
+      let cursor = new Date(start);
+      cursor <= end;
+      cursor = addBucket(cursor, split)
+    ) {
       buckets.push(formatBucketKey(cursor));
       if (buckets.length > 1200) break;
     }
@@ -302,26 +345,26 @@
   function startOfBucket(date: Date, split: TimeSplit): Date {
     const next = new Date(date);
     next.setMinutes(0, 0, 0);
-    if (split === 'hour') return next;
+    if (split === "hour") return next;
     next.setHours(0, 0, 0, 0);
-    if (split === 'day') return next;
-    if (split === 'week') {
+    if (split === "day") return next;
+    if (split === "week") {
       const mondayOffset = (next.getDay() + 6) % 7;
       next.setDate(next.getDate() - mondayOffset);
       return next;
     }
     next.setDate(1);
-    if (split === 'month') return next;
+    if (split === "month") return next;
     next.setMonth(0, 1);
     return next;
   }
 
   function addBucket(date: Date, split: TimeSplit): Date {
     const next = new Date(date);
-    if (split === 'hour') next.setHours(next.getHours() + 1);
-    else if (split === 'day') next.setDate(next.getDate() + 1);
-    else if (split === 'week') next.setDate(next.getDate() + 7);
-    else if (split === 'month') next.setMonth(next.getMonth() + 1);
+    if (split === "hour") next.setHours(next.getHours() + 1);
+    else if (split === "day") next.setDate(next.getDate() + 1);
+    else if (split === "week") next.setDate(next.getDate() + 7);
+    else if (split === "month") next.setMonth(next.getMonth() + 1);
     else next.setFullYear(next.getFullYear() + 1);
     return next;
   }
@@ -331,7 +374,7 @@
   }
 
   function padDatePart(value: number): string {
-    return String(value).padStart(2, '0');
+    return String(value).padStart(2, "0");
   }
 
   function metricPoint(bucket: string, value: number): StatsMetricPoint {
@@ -361,31 +404,50 @@
   function formatBucketLabel(value: string): string {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
-    if (timelineSplit === 'year') return date.toLocaleDateString(undefined, { year: 'numeric' });
-    if (timelineSplit === 'month') return date.toLocaleDateString(undefined, { month: 'short', year: '2-digit' });
-    if (timelineSplit === 'week') return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-    if (timelineSplit === 'hour') {
+    if (timelineSplit === "year")
+      return date.toLocaleDateString(undefined, { year: "numeric" });
+    if (timelineSplit === "month")
+      return date.toLocaleDateString(undefined, {
+        month: "short",
+        year: "2-digit",
+      });
+    if (timelineSplit === "week")
+      return date.toLocaleDateString(undefined, {
+        day: "numeric",
+        month: "short",
+      });
+    if (timelineSplit === "hour") {
       const hour = formatHourLabel(date.getHours());
-      if (activeRange.range === 'today') return hour;
-      const day = date.toLocaleDateString(undefined, { day: 'numeric', weekday: 'short' });
+      if (activeRange.range === "today") return hour;
+      const day = date.toLocaleDateString(undefined, {
+        day: "numeric",
+        weekday: "short",
+      });
       return `${day}, ${hour}`;
     }
-    return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    return date.toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+    });
   }
 
   function formatHourLabel(hour: number): string {
-    if (hourFormat === '24') return `${String(hour).padStart(2, '0')}:00`;
-    const suffix = hour < 12 ? 'AM' : 'PM';
+    if (hourFormat === "24") return `${String(hour).padStart(2, "0")}:00`;
+    const suffix = hour < 12 ? "AM" : "PM";
     const value = hour % 12 || 12;
     return `${value} ${suffix}`;
   }
 
   function formatReleaseYear(value: number | null | undefined): string {
-    return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(1) : 'n/a';
+    return typeof value === "number" && Number.isFinite(value)
+      ? value.toFixed(1)
+      : "n/a";
   }
 
   function formatFeatureAverage(value: number | null | undefined): string {
-    return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '0.00';
+    return typeof value === "number" && Number.isFinite(value)
+      ? value.toFixed(2)
+      : "0.00";
   }
 
   function formatReleaseYearAxis(value: unknown): string {
@@ -397,7 +459,10 @@
   }
 
   function formatFeatureValue(value: unknown): string {
-    return numericValue(value).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+    return numericValue(value).toLocaleString(undefined, {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
+    });
   }
 
   function formatListensTooltip(value: unknown): string {
@@ -415,14 +480,35 @@
   ): SummaryItem[] {
     if (!nextSummary) return [];
     return [
-      { label: 'Listens', value: nextSummary.total_listens.toLocaleString(), detail: activeRangeLabel },
-      { label: 'Time listened', value: formatDuration(nextSummary.total_duration_ms), detail: activeRangeLabel },
-      { label: 'Different artists', value: nextSummary.unique_artists.toLocaleString(), detail: activeRangeLabel },
-      { label: 'Average release year', value: formatReleaseYear(nextReleaseYears?.average_release_year), detail: 'weighted by listens' },
-      { label: 'Average features per track', value: formatFeatureAverage(nextFeatureAverage?.average_features_per_song), detail: `${nextFeatureAverage?.unique_tracks.toLocaleString() ?? '0'} tracks` },
+      {
+        label: "Listens",
+        value: nextSummary.total_listens.toLocaleString(),
+        detail: activeRangeLabel,
+      },
+      {
+        label: "Time listened",
+        value: formatDuration(nextSummary.total_duration_ms),
+        detail: activeRangeLabel,
+      },
+      {
+        label: "Different artists",
+        value: nextSummary.unique_artists.toLocaleString(),
+        detail: activeRangeLabel,
+      },
+      {
+        label: "Average release year",
+        value: formatReleaseYear(nextReleaseYears?.average_release_year),
+        detail: "weighted by listens",
+      },
+      {
+        label: "Average features per track",
+        value: formatFeatureAverage(
+          nextFeatureAverage?.average_features_per_song,
+        ),
+        detail: `${nextFeatureAverage?.unique_tracks.toLocaleString() ?? "0"} tracks`,
+      },
     ];
   }
-
 </script>
 
 <section class="stats-page page-stack" aria-busy={refreshing}>
@@ -430,7 +516,6 @@
     <div class="page-title">
       <p class="kicker">Archive stats</p>
       <h1>Stats</h1>
-      <p>{activeRangeLabel}, {timelineDescription}. Distribution, timing, volume, diversity, release era, and feature density.</p>
     </div>
     <StatsRangePicker {availableYears} ariaLabel="Choose stats range" />
   </div>
@@ -444,7 +529,11 @@
       <p class="error" aria-live="polite">{error}</p>
     {/if}
 
-    <section class="stat-rail stats-section-reveal" aria-label="Selected range summary" aria-busy={loadingSections.summary}>
+    <section
+      class="stat-rail stats-section-reveal"
+      aria-label="Selected range summary"
+      aria-busy={loadingSections.summary}
+    >
       {#if loadingSections.summary}
         {#each Array(5) as _, index (index)}
           <article class="stat-rail-skeleton" style={`--i: ${index};`}>
@@ -455,7 +544,10 @@
         {/each}
       {:else}
         {#each rangeSummary as item, index (item.label)}
-          <article style={`--i: ${index};`} in:fade={{ duration: motionDuration(120) }}>
+          <article
+            style={`--i: ${index};`}
+            in:fade={{ duration: motionDuration(120) }}
+          >
             <span>{item.label}</span>
             <strong>{item.value}</strong>
             <small>{item.detail}</small>
@@ -466,7 +558,11 @@
 
     <div class="stats-grid">
       {#if loadingSections.artistDistribution}
-        <div class="stats-panel-skeleton stats-card-motion span-8" style="--i: 1;" aria-hidden="true">
+        <div
+          class="stats-panel-skeleton stats-card-motion span-8"
+          style="--i: 1;"
+          aria-hidden="true"
+        >
           <div class="skeleton skeleton-line title"></div>
           <div class="skeleton skeleton-chart"></div>
         </div>
@@ -477,20 +573,27 @@
             {bucketKeys}
             {timelineDescription}
             {pagePrefix}
-            formatBucketLabel={formatBucketLabel}
+            {formatBucketLabel}
           />
         </div>
       {/if}
 
       {#if loadingSections.topArtists}
-        <div class="stats-panel-skeleton stats-card-motion span-4 compact" style="--i: 2;" aria-hidden="true">
+        <div
+          class="stats-panel-skeleton stats-card-motion span-4 compact"
+          style="--i: 2;"
+          aria-hidden="true"
+        >
           <div class="skeleton skeleton-line title"></div>
           {#each Array(8) as _, index (index)}
             <div class="skeleton skeleton-line" style={`--i: ${index};`}></div>
           {/each}
         </div>
       {:else}
-        <Card.Root class="stats-card span-4 top-artists-card stats-card-motion" style="--i: 2;">
+        <Card.Root
+          class="stats-card span-4 top-artists-card stats-card-motion"
+          style="--i: 2;"
+        >
           <Card.Header>
             <Card.Description>ranked by listens</Card.Description>
             <Card.Title>Top artists</Card.Title>
@@ -502,24 +605,51 @@
               <ol class="rank-bars">
                 {#each topArtists as artist, index (artist.id)}
                   <li
-                    animate:flip={{ duration: motionDuration(220), easing: quintOut }}
+                    animate:flip={{
+                      duration: motionDuration(220),
+                      easing: quintOut,
+                    }}
                     in:fade={{ duration: motionDuration(120) }}
                     out:fade={{ duration: motionDuration(80) }}
                     style={`--bar: ${barPercent(artist.count, topArtistMax)}; --swatch: ${chartColor(index)};`}
                   >
-                    <span class="rank">{String(index + 1).padStart(2, '0')}</span>
-                    <CoverArt src={directImageUrl(artist)} name={artist.name} href={artistTransitionHref(artist.id, `stats-top-artists-${index}`)} size="xs" transitionName={artistTransition(artist.id, `stats-top-artists-${index}`)} />
-                    <a class="artist-name" href={artistHref(artist.id)} title={artist.name}>
+                    <span class="rank"
+                      >{String(index + 1).padStart(2, "0")}</span
+                    >
+                    <CoverArt
+                      src={directImageUrl(artist)}
+                      name={artist.name}
+                      href={artistTransitionHref(
+                        artist.id,
+                        `stats-top-artists-${index}`,
+                      )}
+                      size="xs"
+                      transitionName={artistTransition(
+                        artist.id,
+                        `stats-top-artists-${index}`,
+                      )}
+                    />
+                    <a
+                      class="artist-name"
+                      href={artistHref(artist.id)}
+                      title={artist.name}
+                    >
                       <strong>{artist.name}</strong>
                       <small>{formatListensTooltip(artist.count)}</small>
                     </a>
-                    <span class="rank-track" aria-hidden="true"><span></span></span>
+                    <span class="rank-track" aria-hidden="true"
+                      ><span></span></span
+                    >
                   </li>
                 {/each}
               </ol>
               <table class="sr-only">
                 <caption>Top artists by listens</caption>
-                <thead><tr><th scope="col">Artist</th><th scope="col">Listens</th></tr></thead>
+                <thead
+                  ><tr
+                    ><th scope="col">Artist</th><th scope="col">Listens</th></tr
+                  ></thead
+                >
                 <tbody>
                   {#each topArtists as artist (artist.id)}
                     <tr><td>{artist.name}</td><td>{artist.count}</td></tr>
@@ -532,7 +662,11 @@
       {/if}
 
       {#if loadingSections.dayDistribution}
-        <div class="stats-panel-skeleton stats-card-motion span-8" style="--i: 3;" aria-hidden="true">
+        <div
+          class="stats-panel-skeleton stats-card-motion span-8"
+          style="--i: 3;"
+          aria-hidden="true"
+        >
           <div class="skeleton skeleton-line title"></div>
           <div class="skeleton skeleton-chart short-chart"></div>
           <div class="skeleton skeleton-chart short-chart"></div>
@@ -544,46 +678,92 @@
       {/if}
 
       {#if loadingSections.hourArtists}
-        <div class="stats-panel-skeleton stats-card-motion span-4 compact" style="--i: 4;" aria-hidden="true">
+        <div
+          class="stats-panel-skeleton stats-card-motion span-4 compact"
+          style="--i: 4;"
+          aria-hidden="true"
+        >
           <div class="skeleton skeleton-line title"></div>
           <div class="skeleton skeleton-heatmap"></div>
         </div>
       {:else}
         <div class="stats-card-motion span-4" style="--i: 4;">
-          <StatsHourArtistHeatmap artists={hourlyArtists} {hours} {hourFormat} {pagePrefix} />
+          <StatsHourArtistHeatmap
+            artists={hourlyArtists}
+            {hours}
+            {hourFormat}
+            {pagePrefix}
+          />
         </div>
       {/if}
 
       {#if loadingSections.bucketMetrics}
-        <div class="stats-panel-skeleton stats-card-motion span-12" style="--i: 5;" aria-hidden="true">
+        <div
+          class="stats-panel-skeleton stats-card-motion span-12"
+          style="--i: 5;"
+          aria-hidden="true"
+        >
           <div class="skeleton skeleton-line title"></div>
           <div class="skeleton skeleton-chart"></div>
         </div>
       {:else}
         <div class="stats-card-motion span-12" style="--i: 5;">
-          <StatsBucketMetricsChart title="Bucket metrics" description={timelineDescription} metrics={bucketMetrics} />
+          <StatsBucketMetricsChart
+            title="Bucket metrics"
+            description={timelineDescription}
+            metrics={bucketMetrics}
+          />
         </div>
       {/if}
 
       {#if loadingSections.releaseYear}
-        <div class="stats-panel-skeleton stats-card-motion span-6 compact" style="--i: 6;" aria-hidden="true">
+        <div
+          class="stats-panel-skeleton stats-card-motion span-6 compact"
+          style="--i: 6;"
+          aria-hidden="true"
+        >
           <div class="skeleton skeleton-line title"></div>
           <div class="skeleton skeleton-chart compact-chart"></div>
         </div>
       {:else}
         <div class="stats-card-motion span-6" style="--i: 6;">
-          <StatsMetricChart title="Average release year" description="listen-weighted by bucket" points={releaseYearPoints} valueLabel="Average release year" color={chartColor(3)} kind="line" formatValue={formatReleaseYearValue} formatAxisValue={formatReleaseYearAxis} emptyLabel="No release year data for this range." zeroBased={false} />
+          <StatsMetricChart
+            title="Average release year"
+            description="listen-weighted by bucket"
+            points={releaseYearPoints}
+            valueLabel="Average release year"
+            color={chartColor(3)}
+            kind="line"
+            formatValue={formatReleaseYearValue}
+            formatAxisValue={formatReleaseYearAxis}
+            emptyLabel="No release year data for this range."
+            zeroBased={false}
+          />
         </div>
       {/if}
 
       {#if loadingSections.featureAverage}
-        <div class="stats-panel-skeleton stats-card-motion span-6 compact" style="--i: 7;" aria-hidden="true">
+        <div
+          class="stats-panel-skeleton stats-card-motion span-6 compact"
+          style="--i: 7;"
+          aria-hidden="true"
+        >
           <div class="skeleton skeleton-line title"></div>
           <div class="skeleton skeleton-chart compact-chart"></div>
         </div>
       {:else}
         <div class="stats-card-motion span-6" style="--i: 7;">
-          <StatsMetricChart title="Average features per track" description="distinct tracks by bucket" points={featurePoints} valueLabel="Average features" color={chartColor(4)} kind="line" formatValue={formatFeatureValue} emptyLabel="No feature data for this range." zeroBased={false} />
+          <StatsMetricChart
+            title="Average features per track"
+            description="distinct tracks by bucket"
+            points={featurePoints}
+            valueLabel="Average features"
+            color={chartColor(4)}
+            kind="line"
+            formatValue={formatFeatureValue}
+            emptyLabel="No feature data for this range."
+            zeroBased={false}
+          />
         </div>
       {/if}
     </div>
@@ -622,7 +802,8 @@
     display: grid;
     gap: 0.14rem;
     min-width: 0;
-    border-right: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+    border-right: 1px solid
+      color-mix(in srgb, var(--color-border) 76%, transparent);
     padding: 0.62rem 0.75rem;
   }
 
@@ -674,10 +855,18 @@
     align-items: stretch;
   }
 
-  .stats-grid :global(.span-4) { grid-column: span 4; }
-  .stats-grid :global(.span-6) { grid-column: span 6; }
-  .stats-grid :global(.span-8) { grid-column: span 8; }
-  .stats-grid :global(.span-12) { grid-column: span 12; }
+  .stats-grid :global(.span-4) {
+    grid-column: span 4;
+  }
+  .stats-grid :global(.span-6) {
+    grid-column: span 6;
+  }
+  .stats-grid :global(.span-8) {
+    grid-column: span 8;
+  }
+  .stats-grid :global(.span-12) {
+    grid-column: span 12;
+  }
 
   .stats-card-motion {
     min-width: 0;
@@ -736,8 +925,8 @@
     padding-block: 1rem;
   }
 
-  .stats-grid :global([data-slot='card-header']),
-  .stats-grid :global([data-slot='card-content']) {
+  .stats-grid :global([data-slot="card-header"]),
+  .stats-grid :global([data-slot="card-content"]) {
     padding-inline: 1rem;
   }
 
@@ -827,11 +1016,13 @@
 
     .stat-rail article {
       border-right: 0;
-      border-bottom: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+      border-bottom: 1px solid
+        color-mix(in srgb, var(--color-border) 76%, transparent);
     }
 
     .stat-rail article:nth-child(odd) {
-      border-right: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+      border-right: 1px solid
+        color-mix(in srgb, var(--color-border) 76%, transparent);
     }
 
     .stat-rail article:last-child,
