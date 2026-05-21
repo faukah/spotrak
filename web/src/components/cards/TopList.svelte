@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { apiFetch } from '../../lib/api/client';
-  import type { TopAlbum, TopArtist, TopTrack } from '../../lib/api/types';
+  import type { TimelinePoint, TopAlbum, TopArtist, TopTrack } from '../../lib/api/types';
   import { formatDuration } from '../../lib/date/format';
   import { selectedStatsMetric } from '../../lib/stores/preferences';
+  import { selectedStatsRange, statsRangeQuery, statsRangeSelectionKey, type StatsRangeSelection } from '../../lib/stores/stats-range';
   import { directImageUrl, transitionHref, viewTransitionName } from '../../lib/images';
   import CoverArt from '../media/CoverArt.svelte';
+  import StatsRangePicker from '../stats/StatsRangePicker.svelte';
   import * as Card from '../ui/card';
   import { Button } from '../ui/button';
 
@@ -14,13 +17,17 @@
   export let dense = false;
   export let apiPrefix = '';
   export let pagePrefix = '';
+  export let showRangePicker = true;
 
   type Item = TopTrack | TopArtist | TopAlbum;
   let items: Item[] = [];
+  let availableYears: number[] = [new Date().getFullYear()];
   let loading = true;
   let error: string | null = null;
   let activeMetric: 'count' | 'duration' = 'count';
-  let unsubscribe: (() => void) | undefined;
+  let activeRange: StatsRangeSelection = { range: 'all' };
+  let unsubscribeMetric: (() => void) | undefined;
+  let unsubscribeRange: (() => void) | undefined;
   const metrics = [
     { value: 'count' as const, label: 'Plays' },
     { value: 'duration' as const, label: 'Time' },
@@ -30,22 +37,52 @@
   $: moreHref = `${pagePrefix}/top/${kind}`;
 
   onMount(() => {
-    unsubscribe = selectedStatsMetric.subscribe((metric) => {
+    activeMetric = get(selectedStatsMetric);
+    activeRange = get(selectedStatsRange);
+    void load();
+    if (showRangePicker) void loadAvailableYears();
+
+    unsubscribeMetric = selectedStatsMetric.subscribe((metric) => {
+      if (metric === activeMetric) return;
       activeMetric = metric;
       void load();
     });
-    return () => unsubscribe?.();
+    unsubscribeRange = selectedStatsRange.subscribe((selection) => {
+      if (statsRangeSelectionKey(selection) === statsRangeSelectionKey(activeRange)) return;
+      activeRange = selection;
+      void load();
+    });
+
+    return () => {
+      unsubscribeMetric?.();
+      unsubscribeRange?.();
+    };
   });
 
   async function load() {
     loading = true;
     error = null;
     try {
-      items = await apiFetch<Item[]>(`${apiPrefix}/stats/top/${kind}?limit=${limit}&metric=${activeMetric}`);
+      const params = new URLSearchParams(statsRangeQuery(activeRange));
+      params.set('limit', String(limit));
+      params.set('metric', activeMetric);
+      items = await apiFetch<Item[]>(`${apiPrefix}/stats/top/${kind}?${params.toString()}`);
     } catch (err) {
       error = err instanceof Error ? err.message : `Unable to load top ${kind}`;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadAvailableYears() {
+    try {
+      const timeline = await apiFetch<TimelinePoint[]>(`${apiPrefix}/stats/listening-over-time?split=year`);
+      const years = timeline
+        .map((point) => Number(point.bucket.slice(0, 4)))
+        .filter((year) => Number.isInteger(year));
+      availableYears = Array.from(new Set([...availableYears, ...years])).toSorted((a, b) => b - a);
+    } catch {
+      availableYears = [...availableYears];
     }
   }
 
@@ -85,6 +122,9 @@
       <Card.Title>{title}</Card.Title>
     </div>
     <div class="header-actions">
+      {#if showRangePicker}
+        <StatsRangePicker {availableYears} ariaLabel={`Choose top ${kind} time range`} buttonSize={dense ? 'xs' : 'sm'} />
+      {/if}
       <div class="metric-buttons" aria-label="Ranking metric">
         {#each metrics as metric (metric.value)}
           <Button variant={activeMetric === metric.value ? 'default' : 'outline'} size="xs" onclick={() => setMetric(metric.value)}>{metric.label}</Button>

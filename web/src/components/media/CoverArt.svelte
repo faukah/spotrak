@@ -7,7 +7,7 @@
   export let size: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'md';
   export let transitionName: string | undefined = undefined;
 
-  $: style = transitionName ? `view-transition-name: ${transitionName};` : undefined;
+  $: style = transitionName ? `view-transition-name: ${transitionName}; view-transition-class: cover-art;` : undefined;
 </script>
 
 {#if href}
@@ -41,8 +41,13 @@
     background: var(--color-panel-2);
     box-shadow: 0 1px 0 oklch(0.98 0.01 85 / 0.04) inset, 0 14px 30px oklch(0.08 0.012 255 / 0.28);
     color: var(--color-text);
+    contain: paint;
+    isolation: isolate;
     text-decoration: none;
     transform: translateZ(0);
+    transition:
+      border-color var(--motion-feedback) var(--ease-out-quart),
+      box-shadow var(--motion-state) var(--ease-out-quart);
   }
 
   .xs { --cover-size: 2.25rem; }
@@ -55,7 +60,9 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transition: transform 220ms ease, filter 220ms ease;
+    transition:
+      transform var(--motion-cover-hover) var(--ease-out-quart),
+      filter var(--motion-cover-hover) var(--ease-out-quart);
   }
 
   span {
@@ -69,14 +76,31 @@
     letter-spacing: -0.08em;
   }
 
+  a.cover:hover,
+  a.cover:focus-visible {
+    border-color: color-mix(in srgb, var(--color-primary) 48%, var(--color-border));
+  }
+
+  a.cover:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 3px color-mix(in srgb, var(--color-primary) 28%, transparent),
+      0 14px 30px oklch(0.08 0.012 255 / 0.28);
+  }
+
   a.cover:hover img {
-    transform: scale(1.045);
-    filter: saturate(1.05) contrast(1.03);
+    transform: scale(1.035);
+    filter: saturate(1.04) contrast(1.02);
   }
 
   @media (prefers-reduced-motion: reduce) {
     img {
       transition: none;
+    }
+
+    a.cover:hover img {
+      transform: none;
+      filter: none;
     }
   }
 </style>

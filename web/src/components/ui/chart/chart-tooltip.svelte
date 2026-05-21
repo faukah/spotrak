@@ -20,6 +20,7 @@
 		labelFormatter = defaultFormatter,
 		labelClassName,
 		formatter,
+		filter,
 		nameKey,
 		color,
 		...restProps
@@ -33,6 +34,7 @@
 		labelClassName?: string;
 		labelFormatter?:
 			((value: unknown, payload: TooltipPayload[]) => string | number | Snippet) | null;
+		filter?: (item: TooltipPayload) => boolean;
 		formatter?: Snippet<
 			[
 				{
@@ -52,7 +54,9 @@
 	// Filter to series with defined values (important for item-based charts like Pie/Arc
 	// where only the hovered item has a value)
 	const visibleSeries = $derived(
-		chartCtx.tooltip.series.filter((s: TooltipPayload) => s.value !== undefined)
+		chartCtx.tooltip.series.filter((seriesItem: TooltipPayload) =>
+			seriesItem.value !== undefined && (!filter || filter(seriesItem))
+		)
 	);
 
 	const formattedLabel = $derived.by(() => {

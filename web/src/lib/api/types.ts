@@ -123,6 +123,16 @@ export interface BucketedTopArtist extends TopArtist {
   bucket: string;
 }
 
+export interface HourlyTopArtist {
+  hour: number;
+  artist_id: string;
+  artist_name: string;
+  image_url?: string | null;
+  count: number;
+  duration_ms: number;
+  rank: number;
+}
+
 export interface BucketedTopAlbum extends Omit<TopAlbum, "release_year"> {
   bucket: string;
 }
@@ -156,6 +166,17 @@ export interface FeatureRatioStats {
   feature_count: number;
   solo_duration_ms: number;
   feature_duration_ms: number;
+}
+
+export interface FeatureAverageStats {
+  unique_tracks: number;
+  featured_tracks: number;
+  total_features: number;
+  average_features_per_song: number;
+}
+
+export interface FeatureTimelinePoint extends FeatureAverageStats {
+  bucket: string;
 }
 
 export interface AlbumReleaseYearPoint {

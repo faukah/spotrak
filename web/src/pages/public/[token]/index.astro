@@ -18,9 +18,9 @@ const { apiPrefix, pagePrefix, valid } = await publicShareContext(Astro.request,
       </div>
       <SummaryCards apiPrefix={apiPrefix} client:visible />
       <section class="rank-grid">
-        <TopList kind="tracks" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
-        <TopList kind="artists" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
-        <TopList kind="albums" limit={10} dense apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
+        <TopList kind="tracks" limit={10} dense showRangePicker={false} apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
+        <TopList kind="artists" limit={10} dense showRangePicker={false} apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
+        <TopList kind="albums" limit={10} dense showRangePicker={false} apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
       </section>
       <HistoryList limit={16} apiPrefix={apiPrefix} pagePrefix={pagePrefix} client:visible />
     </section>

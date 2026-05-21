@@ -19,6 +19,7 @@ function shouldCacheGet(path: string, init: RequestInit): boolean {
     path === "/auth/me" ||
     path === "/users/me" ||
     path.startsWith("/stats/") ||
+    (path.startsWith("/public/") && path.includes("/stats/")) ||
     path.startsWith("/tracks/") ||
     path.startsWith("/artists/") ||
     path.startsWith("/albums/") ||

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { applyThemePreference, getStoredThemePreference, setThemePreference, watchSystemTheme, type EffectiveTheme, type ThemePreference } from '../../lib/theme';
+  import { applyThemePreference, getStoredThemePreference, setThemePreference, watchSystemTheme, type EffectiveTheme, type ThemePreference, type ThemeTransitionOrigin } from '../../lib/theme';
 
   const order: ThemePreference[] = ['follow', 'light', 'dark'];
 
@@ -30,16 +30,27 @@
     };
   });
 
-  function cycleTheme() {
+  function cycleTheme(event: MouseEvent) {
     const index = order.indexOf(preference);
     const next = order[(index + 1) % order.length] ?? 'follow';
     preference = next;
-    theme = setThemePreference(next);
+    theme = setThemePreference(next, themeTransitionOrigin(event));
+  }
+
+  function themeTransitionOrigin(event: MouseEvent): ThemeTransitionOrigin | undefined {
+    if (!(event.currentTarget instanceof HTMLElement)) return undefined;
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
   }
 </script>
 
 <button class="theme-toggle" type="button" aria-label={`${title}. Change theme`} {title} onclick={cycleTheme}>
-  <span aria-hidden="true" class="theme-icon">{icon}</span>
+  {#key icon}
+    <span aria-hidden="true" class="theme-icon">{icon}</span>
+  {/key}
   <span class="theme-label">{label}</span>
 </button>
 
@@ -59,7 +70,11 @@
     font-weight: 750;
     white-space: nowrap;
     cursor: pointer;
-    transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+    transition:
+      border-color var(--motion-feedback) var(--ease-out-quart),
+      background var(--motion-feedback) var(--ease-out-quart),
+      color var(--motion-feedback) var(--ease-out-quart),
+      transform var(--motion-feedback) var(--ease-out-quart);
   }
 
   .theme-toggle:hover {
@@ -67,10 +82,22 @@
     background: var(--color-panel-2);
   }
 
+  .theme-toggle:active {
+    transform: translateY(1px);
+  }
+
   .theme-icon {
     width: 1em;
     color: var(--color-primary);
     text-align: center;
+    animation: theme-icon-settle var(--motion-state) var(--ease-out-quart) both;
+  }
+
+  @keyframes theme-icon-settle {
+    from {
+      opacity: 0;
+      transform: rotate(-18deg) scale(0.86);
+    }
   }
 
   @media (max-width: 500px) {

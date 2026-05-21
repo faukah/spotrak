@@ -356,6 +356,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/{token}/stats/album-release-years": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["album_release_years"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/stats/diversity-over-time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["diversity_over_time"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/stats/feature-average": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["feature_average"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/stats/feature-average-over-time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["feature_average_over_time"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/stats/hour-repartition/tracks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["hour_repartition_tracks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/{token}/stats/listening-over-time": {
         parameters: {
             query?: never;
@@ -420,6 +500,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/{token}/stats/top/artists-by-bucket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["top_artists_by_bucket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/stats/top/artists-by-hour": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["top_artists_by_hour"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/{token}/stats/top/tracks": {
         parameters: {
             query?: never;
@@ -476,6 +588,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["diversity_over_time"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stats/feature-average": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["feature_average"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stats/feature-average-over-time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["feature_average_over_time"];
         put?: never;
         post?: never;
         delete?: never;
@@ -684,6 +828,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["top_artists_by_bucket"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stats/top/artists-by-hour": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["top_artists_by_hour"];
         put?: never;
         post?: never;
         delete?: never;
@@ -998,6 +1158,16 @@ export interface components {
         ErrorEnvelope: {
             error: components["schemas"]["ErrorBody"];
         };
+        FeatureAverageStats: {
+            /** Format: double */
+            average_features_per_song: number;
+            /** Format: int64 */
+            featured_tracks: number;
+            /** Format: int64 */
+            total_features: number;
+            /** Format: int64 */
+            unique_tracks: number;
+        };
         FeatureRatioStats: {
             /** Format: int64 */
             feature_count: number;
@@ -1007,6 +1177,17 @@ export interface components {
             solo_count: number;
             /** Format: int64 */
             solo_duration_ms: number;
+        };
+        FeatureTimelinePoint: {
+            /** Format: double */
+            average_features_per_song: number;
+            bucket: string;
+            /** Format: int64 */
+            featured_tracks: number;
+            /** Format: int64 */
+            total_features: number;
+            /** Format: int64 */
+            unique_tracks: number;
         };
         GlobalPreferences: {
             allow_affinity: boolean;
@@ -1047,6 +1228,19 @@ export interface components {
             duration_ms: number;
             /** Format: int32 */
             hour: number;
+        };
+        HourlyTopArtist: {
+            artist_id: string;
+            artist_name: string;
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            duration_ms: number;
+            /** Format: int32 */
+            hour: number;
+            image_url?: string | null;
+            /** Format: int64 */
+            rank: number;
         };
         ImportJobResponse: {
             /** Format: date-time */
@@ -1403,8 +1597,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -1494,8 +1691,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -1628,8 +1828,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -1819,8 +2022,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -1843,13 +2049,176 @@ export interface operations {
             };
         };
     };
+    album_release_years: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public album release-year distribution */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlbumReleaseYearsStats"];
+                };
+            };
+        };
+    };
+    diversity_over_time: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public diversity over time */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiversityTimelinePoint"][];
+                };
+            };
+        };
+    };
+    feature_average: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public average featured artists per listened song */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureAverageStats"];
+                };
+            };
+        };
+    };
+    feature_average_over_time: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public average featured artists per listened song over time */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureTimelinePoint"][];
+                };
+            };
+        };
+    };
+    hour_repartition_tracks: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public track plays by local hour */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HourRepartitionPoint"][];
+                };
+            };
+        };
+    };
     listening_over_time: {
         parameters: {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -1877,8 +2246,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -1906,8 +2278,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -1935,8 +2310,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -1959,13 +2337,80 @@ export interface operations {
             };
         };
     };
+    top_artists_by_bucket: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public top artists by time bucket */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BucketedTopArtist"][];
+                };
+            };
+        };
+    };
+    top_artists_by_hour: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public top artists by local hour */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HourlyTopArtist"][];
+                };
+            };
+        };
+    };
     top_tracks: {
         parameters: {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2015,8 +2460,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2042,8 +2490,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2064,13 +2515,76 @@ export interface operations {
             };
         };
     };
+    feature_average: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Average featured artists per listened song */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureAverageStats"];
+                };
+            };
+        };
+    };
+    feature_average_over_time: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Average featured artists per listened song over time */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeatureTimelinePoint"][];
+                };
+            };
+        };
+    };
     feature_ratio: {
         parameters: {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2096,8 +2610,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2123,8 +2640,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2150,8 +2670,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2177,8 +2700,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2204,8 +2730,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2277,8 +2806,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2304,8 +2836,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2331,8 +2866,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2358,8 +2896,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2385,8 +2926,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2407,13 +2951,46 @@ export interface operations {
             };
         };
     };
+    top_artists_by_hour: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Top artists by local hour */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HourlyTopArtist"][];
+                };
+            };
+        };
+    };
     top_tracks: {
         parameters: {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2439,8 +3016,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };
@@ -2488,8 +3068,11 @@ export interface operations {
             query?: {
                 start?: string | null;
                 end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
                 split?: components["schemas"]["TimeSplit"];
                 metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
                 limit?: number | null;
                 offset?: number | null;
             };

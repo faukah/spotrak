@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { Search } from '@lucide/svelte';
   import { apiFetch } from '../../lib/api/client';
   import type { EntityRef, SearchResults } from '../../lib/api/types';
@@ -19,6 +19,8 @@
   let requestId = 0;
   let activeIndex = -1;
   let shellElement: HTMLDivElement | null = null;
+  let resultsElement: HTMLDivElement | null = null;
+  let pendingScrollId: string | undefined;
 
   $: resultsId = `${id}-results`;
   $: groups = results
@@ -30,6 +32,7 @@
     : [];
   $: optionEntries = resultEntries(groups);
   $: activeId = open && activeIndex >= 0 ? optionEntries[activeIndex]?.optionId : undefined;
+  $: if (activeId) void scrollActiveOptionIntoView(activeId);
   $: if (!open || optionEntries.length === 0) {
     activeIndex = -1;
   } else if (activeIndex >= optionEntries.length) {
@@ -127,6 +130,26 @@
     }
   }
 
+  async function scrollActiveOptionIntoView(optionId: string) {
+    pendingScrollId = optionId;
+    await tick();
+    if (pendingScrollId !== optionId || !resultsElement) return;
+
+    const option = document.getElementById(optionId);
+    if (!option || !resultsElement.contains(option)) return;
+
+    const optionScrollMargin = 8;
+    const optionRect = option.getBoundingClientRect();
+    const resultsRect = resultsElement.getBoundingClientRect();
+    const visibleTop = resultsRect.top + optionScrollMargin;
+    const visibleBottom = resultsRect.bottom - optionScrollMargin;
+    if (optionRect.top < visibleTop) {
+      resultsElement.scrollTop -= visibleTop - optionRect.top;
+    } else if (optionRect.bottom > visibleBottom) {
+      resultsElement.scrollTop += optionRect.bottom - visibleBottom;
+    }
+  }
+
   function handleFocusOut() {
     window.setTimeout(() => {
       if (!shellElement?.contains(document.activeElement)) closeResults();
@@ -152,7 +175,7 @@
     aria-activedescendant={activeId}
   />
   {#if open}
-    <div class="results" id={resultsId} role="listbox" aria-label="Search results">
+    <div class="results" id={resultsId} role="listbox" aria-label="Search results" bind:this={resultsElement}>
       {#if loading}
         <p role="status" aria-live="polite">Searching…</p>
       {:else if groups.length === 0}

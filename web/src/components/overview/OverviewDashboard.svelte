@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Check, ChevronDown } from '@lucide/svelte';
+  import { get } from 'svelte/store';
   import { apiFetch } from '../../lib/api/client';
   import type {
     EntityStats,
@@ -16,8 +16,9 @@
   import { chartColor, formatCountValue, formatDurationValue } from '../../lib/charts/theme';
   import { formatDateTime, formatDuration } from '../../lib/date/format';
   import { transitionHref, viewTransitionName } from '../../lib/images';
+  import { selectedStatsRange, statsRangeSelectionKey, type StatsRangeSelection } from '../../lib/stores/stats-range';
   import CoverArt from '../media/CoverArt.svelte';
-  import { Button } from '../ui/button';
+  import StatsRangePicker from '../stats/StatsRangePicker.svelte';
   import * as Card from '../ui/card';
 
   type Trend = { text: string; tone: 'up' | 'down' | 'flat' } | null;
@@ -25,15 +26,8 @@
   export let initialOverview: OverviewStatsResponse | null = null;
 
   const currentYear = new Date().getFullYear();
-  const rangeButtons: { key: StatsRangeKey; label: string }[] = [
-    { key: 'today', label: 'Today' },
-    { key: 'week', label: 'This week' },
-    { key: 'month', label: 'This month' },
-    { key: 'year', label: 'This year' },
-    { key: 'all', label: 'All' },
-  ];
 
-  let rangeKey: StatsRangeKey = initialOverview?.range.range ?? 'today';
+  let rangeKey: StatsRangeKey = initialOverview?.range.range ?? 'all';
   let selectedYear = currentYear;
   let availableYears: number[] = initialOverview?.available_years.length ? initialOverview.available_years : [currentYear];
   let hourFormat: '12' | '24' = initialOverview?.hour_format ?? '24';
@@ -56,12 +50,12 @@
   const overviewCache = new Map<string, OverviewStatsResponse>();
   const overviewRequests = new Map<string, Promise<OverviewStatsResponse>>();
 
-  let rangeMenuElement: HTMLDivElement | null = null;
-  let rangeMenuOpen = false;
+  let unsubscribeStatsRange: (() => void) | undefined;
+  let lastRangeSelectionKey = statsRangeSelectionKey({ range: rangeKey, year: selectedYear });
   let activeRange: StatsRangeResponse = initialOverview?.range ?? {
-    range: 'today',
-    label: 'Today',
-    comparison_label: 'yesterday',
+    range: 'all',
+    label: 'All time',
+    comparison_label: null,
   };
 
   const hourChartWidth = 720;
@@ -85,36 +79,48 @@
   $: hourGroupWidth = hourPlotWidth / hourChartData.length;
   $: maxHourValue = Math.max(1, ...hourChartData.flatMap((point) => [point.plays, point.minutes]));
   $: hourChartTicks = [0, Math.ceil(maxHourValue / 2), Math.ceil(maxHourValue)];
-  $: selectedRangeText = rangeLabel(rangeKey, selectedYear);
 
   onMount(() => {
     mounted = true;
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!rangeMenuOpen || !rangeMenuElement || !(event.target instanceof Node)) return;
-      if (!rangeMenuElement.contains(event.target)) rangeMenuOpen = false;
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') rangeMenuOpen = false;
-    };
-    document.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('keydown', handleKeyDown);
+    applyStatsRangeSelection(get(selectedStatsRange), false);
+    unsubscribeStatsRange = selectedStatsRange.subscribe((selection) => {
+      const key = statsRangeSelectionKey(selection);
+      if (key === lastRangeSelectionKey) return;
+      applyStatsRangeSelection(selection, true);
+    });
     void initialize();
     return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('keydown', handleKeyDown);
+      unsubscribeStatsRange?.();
       requestId += 1;
     };
   });
 
   async function initialize() {
     if (initialOverview) {
-      overviewCache.set(overviewPath(), initialOverview);
-      if (rangeKey === 'today') void prefetchOverview('week');
-      return;
+      overviewCache.set(overviewPathFor(initialOverview.range.range, overviewYear(initialOverview.range)), initialOverview);
+      const cached = overviewCache.get(overviewPath());
+      if (cached) {
+        applyOverview(cached);
+        loading = false;
+        refreshing = false;
+        if (rangeKey === 'today') void prefetchOverview('week');
+        return;
+      }
     }
 
     await loadOverview();
     if (rangeKey === 'today') void prefetchOverview('week');
+  }
+
+  function applyStatsRangeSelection(selection: StatsRangeSelection, shouldLoad: boolean) {
+    rangeKey = selection.range;
+    if (selection.range === 'selected-year') selectedYear = selection.year ?? selectedYear;
+    lastRangeSelectionKey = statsRangeSelectionKey({ range: rangeKey, year: selectedYear });
+    if (!shouldLoad && summary !== null && activeOverviewPath() !== overviewPath()) {
+      clearOverviewData();
+      loading = true;
+    }
+    if (shouldLoad) void loadOverview();
   }
 
   async function loadOverview() {
@@ -185,6 +191,8 @@
   function applyOverview(overview: OverviewStatsResponse) {
     activeRange = overview.range;
     rangeKey = overview.range.range;
+    if (overview.range.range === 'selected-year') selectedYear = overviewYear(overview.range);
+    lastRangeSelectionKey = statsRangeSelectionKey({ range: rangeKey, year: selectedYear });
     availableYears = overview.available_years.length > 0 ? overview.available_years : [currentYear];
     summary = overview.summary;
     previousSummary = overview.previous_summary ?? null;
@@ -197,8 +205,24 @@
     timezone = overview.timezone;
   }
 
+  function clearOverviewData() {
+    error = null;
+    summary = null;
+    previousSummary = null;
+    bestArtist = null;
+    bestArtistStats = null;
+    bestSong = null;
+    hours = [];
+    history = [];
+    refreshing = false;
+  }
+
   function overviewPath() {
     return overviewPathFor(rangeKey, selectedYear);
+  }
+
+  function activeOverviewPath() {
+    return overviewPathFor(activeRange.range, overviewYear(activeRange));
   }
 
   function overviewPathFor(range: StatsRangeKey, year: number) {
@@ -207,24 +231,10 @@
     return `/stats/overview?${params.toString()}`;
   }
 
-  function rangeLabel(range: StatsRangeKey, year: number): string {
-    if (range === 'selected-year') return String(year);
-    const option = rangeButtons.find((item) => item.key === range);
-    if (option?.key === 'all') return 'All time';
-    return option?.label ?? activeRange.label;
-  }
-
-  function setRange(next: StatsRangeKey) {
-    rangeKey = next;
-    rangeMenuOpen = false;
-    void loadOverview();
-  }
-
-  function chooseYear(year: number) {
-    selectedYear = year;
-    rangeKey = 'selected-year';
-    rangeMenuOpen = false;
-    void loadOverview();
+  function overviewYear(range: StatsRangeResponse): number {
+    if (range.range !== 'selected-year') return currentYear;
+    const year = Number(range.label);
+    return Number.isInteger(year) ? year : currentYear;
   }
 
   function compareNumber(current: number | undefined, previous: number | undefined, label: string): Trend {
@@ -299,41 +309,7 @@
       <h1>Overview</h1>
     </div>
     <div class="range-panel" aria-label="Overview time range">
-      <div class="range-menu" bind:this={rangeMenuElement}>
-        <Button
-          variant="outline"
-          size="sm"
-          class="range-trigger"
-          aria-haspopup="true"
-          aria-expanded={rangeMenuOpen}
-          onclick={() => (rangeMenuOpen = !rangeMenuOpen)}
-        >
-          <span>{selectedRangeText}</span>
-          <ChevronDown class="range-trigger-icon" aria-hidden="true" />
-        </Button>
-        {#if rangeMenuOpen}
-          <div class="range-dropdown" aria-label="Choose overview time range">
-            <div class="dropdown-group">
-              {#each rangeButtons as option (option.key)}
-                <button type="button" aria-pressed={rangeKey === option.key} class:active-range={rangeKey === option.key} onclick={() => setRange(option.key)}>
-                  <span>{option.key === 'all' ? 'All time' : option.label}</span>
-                  {#if rangeKey === option.key}<Check aria-hidden="true" />{/if}
-                </button>
-              {/each}
-            </div>
-            <div class="dropdown-separator"></div>
-            <span class="dropdown-label">Years</span>
-            <div class="dropdown-group years">
-              {#each availableYears as year (year)}
-                <button type="button" aria-pressed={rangeKey === 'selected-year' && selectedYear === year} class:active-range={rangeKey === 'selected-year' && selectedYear === year} onclick={() => chooseYear(year)}>
-                  <span>{year}</span>
-                  {#if rangeKey === 'selected-year' && selectedYear === year}<Check aria-hidden="true" />{/if}
-                </button>
-              {/each}
-            </div>
-          </div>
-        {/if}
-      </div>
+      <StatsRangePicker {availableYears} ariaLabel="Choose overview time range" />
     </div>
   </header>
 
@@ -544,85 +520,6 @@
     display: flex;
     justify-content: flex-end;
     align-items: center;
-  }
-
-  .range-menu {
-    position: relative;
-  }
-
-  :global(.range-trigger) {
-    min-width: 11.5rem;
-    justify-content: space-between;
-  }
-
-  :global(.range-trigger-icon) {
-    color: var(--color-muted);
-  }
-
-  .range-dropdown {
-    position: absolute;
-    top: calc(100% + 0.4rem);
-    right: 0;
-    z-index: 40;
-    display: grid;
-    gap: 0.18rem;
-    width: 14rem;
-    max-height: min(24rem, calc(100vh - 9rem));
-    overflow: auto;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    padding: 0.35rem;
-    background: var(--color-bg-elevated);
-    box-shadow: var(--shadow-card);
-  }
-
-  .dropdown-group {
-    display: grid;
-    gap: 0.1rem;
-  }
-
-  .range-dropdown button {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    border: 0;
-    border-radius: var(--radius-sm);
-    padding: 0.5rem 0.55rem;
-    background: transparent;
-    color: var(--color-text);
-    cursor: pointer;
-    font: inherit;
-    font-size: 0.86rem;
-    font-weight: 750;
-    text-align: left;
-  }
-
-  .range-dropdown button:hover,
-  .range-dropdown button.active-range {
-    background: var(--color-panel-2);
-  }
-
-  .range-dropdown button :global(svg) {
-    width: 0.95rem;
-    height: 0.95rem;
-    color: var(--color-primary);
-  }
-
-  .dropdown-label {
-    padding: 0.3rem 0.55rem 0.15rem;
-    color: var(--color-muted);
-    font-size: 0.68rem;
-    font-weight: 850;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-  }
-
-  .dropdown-separator {
-    height: 1px;
-    margin: 0.28rem 0.15rem;
-    background: var(--color-border);
   }
 
   .summary-grid,
@@ -887,19 +784,8 @@
       grid-template-columns: 1fr;
     }
 
-    :global(.range-trigger) {
-      width: 100%;
-    }
-
-    .range-menu,
     .range-panel {
       width: 100%;
-    }
-
-    .range-dropdown {
-      right: auto;
-      left: 0;
-      width: min(100%, 18rem);
     }
 
     .history-list li {
@@ -913,10 +799,6 @@
   }
 
   @media (max-width: 420px) {
-    .range-dropdown {
-      width: 100%;
-    }
-
     .entity-row {
       align-items: flex-start;
     }

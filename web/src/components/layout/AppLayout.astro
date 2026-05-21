@@ -6,6 +6,7 @@ import AuthStatus from './AuthStatus.svelte';
 import AuthGate from '../auth/AuthGate.svelte';
 import SearchBox from '../search/SearchBox.svelte';
 import ThemeScript from './ThemeScript.astro';
+import StatsRangeScript from './StatsRangeScript.astro';
 import ThemeToggle from './ThemeToggle.svelte';
 import MobileMenu from './MobileMenu.svelte';
 
@@ -17,6 +18,7 @@ const { title = 'Spotrak' } = Astro.props;
 const pathname = Astro.url.pathname;
 const nav = [
   ['Overview', '/'],
+  ['Stats', '/stats'],
   ['History', '/history'],
   ['Tracks', '/top/tracks'],
   ['Artists', '/top/artists'],
@@ -41,6 +43,7 @@ const navItems = nav.map(([label, href]) => ({ label, href, active: isActive(hre
     <meta name="generator" content={Astro.generator} />
     <meta name="theme-color" content="oklch(0.94 0.01 85)" />
     <ThemeScript />
+    <StatsRangeScript />
     <title>{title}</title>
     <ClientRouter />
   </head>

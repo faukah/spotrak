@@ -14,9 +14,9 @@ use crate::{
     domain::{
         stats::{
             AlbumReleaseYearsStats, BucketedTopAlbum, BucketedTopArtist, BucketedTopTrack,
-            DiversityTimelinePoint, FeatureRatioStats, HistoryEvent, HourRepartitionPoint,
-            LongestSession, OverviewStatsResponse, SummaryStats, TimelinePoint, TopAlbum,
-            TopArtist, TopTrack,
+            DiversityTimelinePoint, FeatureAverageStats, FeatureRatioStats, FeatureTimelinePoint,
+            HistoryEvent, HourRepartitionPoint, HourlyTopArtist, LongestSession,
+            OverviewStatsResponse, SummaryStats, TimelinePoint, TopAlbum, TopArtist, TopTrack,
         },
         time::{
             IntervalQuery, Metric, RangeQuery, StatsRangeResponse, TimeSplit, resolve_stats_range,
@@ -40,6 +40,7 @@ pub fn router() -> Router<AppState> {
         .route("/stats/top/albums", get(top_albums))
         .route("/stats/top/tracks-by-bucket", get(top_tracks_by_bucket))
         .route("/stats/top/artists-by-bucket", get(top_artists_by_bucket))
+        .route("/stats/top/artists-by-hour", get(top_artists_by_hour))
         .route("/stats/top/albums-by-bucket", get(top_albums_by_bucket))
         .route(
             "/stats/hour-repartition/tracks",
@@ -54,6 +55,11 @@ pub fn router() -> Router<AppState> {
             get(hour_repartition_albums),
         )
         .route("/stats/feature-ratio", get(feature_ratio))
+        .route("/stats/feature-average", get(feature_average))
+        .route(
+            "/stats/feature-average-over-time",
+            get(feature_average_over_time),
+        )
         .route("/stats/album-release-years", get(album_release_years))
         .route("/stats/longest-sessions", get(longest_sessions))
 }
@@ -71,11 +77,12 @@ pub async fn history(
 ) -> Result<Json<Vec<HistoryEvent>>> {
     query.validate()?;
     let user = current_user(&headers, &state).await?;
+    let (start, end) = interval_bounds(&state, user.id, &query).await?;
     let rows = listening_events::history(
         &state.db,
         user.id,
-        query.start,
-        query.end,
+        start,
+        end,
         query.limit_or(50),
         query.offset_or_zero(),
     )
@@ -291,7 +298,8 @@ pub async fn summary(
 ) -> Result<Json<SummaryStats>> {
     query.validate()?;
     let user = current_user(&headers, &state).await?;
-    let stats = listening_events::summary(&state.db, user.id, query.start, query.end).await?;
+    let (start, end) = interval_bounds(&state, user.id, &query).await?;
+    let stats = listening_events::summary(&state.db, user.id, start, end).await?;
     Ok(Json(stats))
 }
 
@@ -309,15 +317,9 @@ pub async fn listening_over_time(
     query.validate()?;
     let user = current_user(&headers, &state).await?;
     let timezone = user_timezone(&state, user.id).await?;
-    let rows = listening_events::timeline(
-        &state.db,
-        user.id,
-        &timezone,
-        query.split,
-        query.start,
-        query.end,
-    )
-    .await?;
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let rows =
+        listening_events::timeline(&state.db, user.id, &timezone, query.split, start, end).await?;
     Ok(Json(rows))
 }
 
@@ -335,14 +337,15 @@ pub async fn diversity_over_time(
     query.validate()?;
     let user = current_user(&headers, &state).await?;
     let timezone = user_timezone(&state, user.id).await?;
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
     Ok(Json(
         listening_events::diversity_timeline(
             &state.db,
             user.id,
             &timezone,
             query.split,
-            query.start,
-            query.end,
+            start,
+            end,
         )
         .await?,
     ))
@@ -361,12 +364,14 @@ pub async fn top_tracks(
 ) -> Result<Json<Vec<TopTrack>>> {
     query.validate()?;
     let user = current_user(&headers, &state).await?;
+    let timezone = user_timezone(&state, user.id).await?;
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
     let rows = listening_events::top_tracks(
         &state.db,
         user.id,
         query.metric,
-        query.start,
-        query.end,
+        start,
+        end,
         query.limit_or(20),
         query.offset_or_zero(),
     )
@@ -387,12 +392,14 @@ pub async fn top_artists(
 ) -> Result<Json<Vec<TopArtist>>> {
     query.validate()?;
     let user = current_user(&headers, &state).await?;
+    let timezone = user_timezone(&state, user.id).await?;
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
     let rows = listening_events::top_artists(
         &state.db,
         user.id,
         query.metric,
-        query.start,
-        query.end,
+        start,
+        end,
         query.limit_or(20),
         query.offset_or_zero(),
     )
@@ -413,12 +420,14 @@ pub async fn top_albums(
 ) -> Result<Json<Vec<TopAlbum>>> {
     query.validate()?;
     let user = current_user(&headers, &state).await?;
+    let timezone = user_timezone(&state, user.id).await?;
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
     let rows = listening_events::top_albums(
         &state.db,
         user.id,
         query.metric,
-        query.start,
-        query.end,
+        start,
+        end,
         query.limit_or(20),
         query.offset_or_zero(),
     )
@@ -440,6 +449,7 @@ pub async fn top_tracks_by_bucket(
     query.validate()?;
     let user = current_user(&headers, &state).await?;
     let timezone = user_timezone(&state, user.id).await?;
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
     Ok(Json(
         listening_events::top_tracks_by_bucket(
             &state.db,
@@ -447,8 +457,8 @@ pub async fn top_tracks_by_bucket(
             &timezone,
             query.split,
             query.metric,
-            query.start,
-            query.end,
+            start,
+            end,
             query.limit_or(5),
         )
         .await?,
@@ -469,15 +479,58 @@ pub async fn top_artists_by_bucket(
     query.validate()?;
     let user = current_user(&headers, &state).await?;
     let timezone = user_timezone(&state, user.id).await?;
-    let rows = listening_events::top_artists_by_bucket(
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let rows = if query.group_other.unwrap_or(false) {
+        listening_events::top_artists_by_bucket_with_other(
+            &state.db,
+            user.id,
+            &timezone,
+            query.split,
+            query.metric,
+            start,
+            end,
+            query.limit_or(10),
+        )
+        .await?
+    } else {
+        listening_events::top_artists_by_bucket(
+            &state.db,
+            user.id,
+            &timezone,
+            query.split,
+            query.metric,
+            start,
+            end,
+            query.limit_or(5),
+        )
+        .await?
+    };
+    Ok(Json(rows))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/stats/top/artists-by-hour",
+    params(IntervalQuery),
+    responses((status = 200, description = "Top artists by local hour", body = Vec<HourlyTopArtist>))
+)]
+pub async fn top_artists_by_hour(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<IntervalQuery>,
+) -> Result<Json<Vec<HourlyTopArtist>>> {
+    query.validate()?;
+    let user = current_user(&headers, &state).await?;
+    let timezone = user_timezone(&state, user.id).await?;
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let rows = listening_events::top_artists_by_hour(
         &state.db,
         user.id,
         &timezone,
-        query.split,
         query.metric,
-        query.start,
-        query.end,
-        query.limit_or(5),
+        start,
+        end,
+        query.limit_or(1),
     )
     .await?;
     Ok(Json(rows))
@@ -497,6 +550,7 @@ pub async fn top_albums_by_bucket(
     query.validate()?;
     let user = current_user(&headers, &state).await?;
     let timezone = user_timezone(&state, user.id).await?;
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
     Ok(Json(
         listening_events::top_albums_by_bucket(
             &state.db,
@@ -504,8 +558,8 @@ pub async fn top_albums_by_bucket(
             &timezone,
             query.split,
             query.metric,
-            query.start,
-            query.end,
+            start,
+            end,
             query.limit_or(5),
         )
         .await?,
@@ -562,9 +616,9 @@ async fn hour_repartition(
     query.validate()?;
     let user = current_user(&headers, &state).await?;
     let timezone = user_timezone(&state, user.id).await?;
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
     let rows =
-        listening_events::hour_repartition(&state.db, user.id, &timezone, query.start, query.end)
-            .await?;
+        listening_events::hour_repartition(&state.db, user.id, &timezone, start, end).await?;
     Ok(Json(rows))
 }
 
@@ -581,8 +635,48 @@ pub async fn feature_ratio(
 ) -> Result<Json<FeatureRatioStats>> {
     query.validate()?;
     let user = current_user(&headers, &state).await?;
-    let stats = listening_events::feature_ratio(&state.db, user.id, query.start, query.end).await?;
+    let (start, end) = interval_bounds(&state, user.id, &query).await?;
+    let stats = listening_events::feature_ratio(&state.db, user.id, start, end).await?;
     Ok(Json(stats))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/stats/feature-average",
+    params(IntervalQuery),
+    responses((status = 200, description = "Average featured artists per listened song", body = FeatureAverageStats))
+)]
+pub async fn feature_average(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<IntervalQuery>,
+) -> Result<Json<FeatureAverageStats>> {
+    query.validate()?;
+    let user = current_user(&headers, &state).await?;
+    let (start, end) = interval_bounds(&state, user.id, &query).await?;
+    let stats = listening_events::feature_average(&state.db, user.id, start, end).await?;
+    Ok(Json(stats))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/stats/feature-average-over-time",
+    params(IntervalQuery),
+    responses((status = 200, description = "Average featured artists per listened song over time", body = Vec<FeatureTimelinePoint>))
+)]
+pub async fn feature_average_over_time(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<IntervalQuery>,
+) -> Result<Json<Vec<FeatureTimelinePoint>>> {
+    query.validate()?;
+    let user = current_user(&headers, &state).await?;
+    let timezone = user_timezone(&state, user.id).await?;
+    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let rows =
+        listening_events::feature_timeline(&state.db, user.id, &timezone, query.split, start, end)
+            .await?;
+    Ok(Json(rows))
 }
 
 #[utoipa::path(
@@ -598,8 +692,8 @@ pub async fn album_release_years(
 ) -> Result<Json<AlbumReleaseYearsStats>> {
     query.validate()?;
     let user = current_user(&headers, &state).await?;
-    let stats =
-        listening_events::album_release_years(&state.db, user.id, query.start, query.end).await?;
+    let (start, end) = interval_bounds(&state, user.id, &query).await?;
+    let stats = listening_events::album_release_years(&state.db, user.id, start, end).await?;
     Ok(Json(stats))
 }
 
@@ -616,15 +710,29 @@ pub async fn longest_sessions(
 ) -> Result<Json<Vec<LongestSession>>> {
     query.validate()?;
     let user = current_user(&headers, &state).await?;
-    let rows = listening_events::longest_sessions(
-        &state.db,
-        user.id,
-        query.start,
-        query.end,
-        query.limit_or(10),
-    )
-    .await?;
+    let (start, end) = interval_bounds(&state, user.id, &query).await?;
+    let rows =
+        listening_events::longest_sessions(&state.db, user.id, start, end, query.limit_or(10))
+            .await?;
     Ok(Json(rows))
+}
+
+async fn interval_bounds(
+    state: &AppState,
+    user_id: uuid::Uuid,
+    query: &IntervalQuery,
+) -> Result<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)> {
+    if query.range.is_none() {
+        return Ok((query.start, query.end));
+    }
+    let timezone = user_timezone(state, user_id).await?;
+    query.resolved_bounds(parse_timezone(&timezone)?)
+}
+
+fn parse_timezone(value: &str) -> Result<Tz> {
+    value
+        .parse::<Tz>()
+        .map_err(|_| AppError::validation("user timezone must be an IANA timezone name"))
 }
 
 async fn user_timezone(state: &AppState, user_id: uuid::Uuid) -> Result<String> {

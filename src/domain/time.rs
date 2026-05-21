@@ -239,15 +239,35 @@ fn local_datetime_utc(timezone: Tz, naive: NaiveDateTime) -> chrono::DateTime<Ut
 pub struct IntervalQuery {
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
+    pub range: Option<StatsRangeKey>,
+    pub year: Option<i32>,
     #[serde(default)]
     pub split: TimeSplit,
     #[serde(default)]
     pub metric: Metric,
+    pub group_other: Option<bool>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
 
 impl IntervalQuery {
+    pub fn resolved_bounds(
+        &self,
+        timezone: Tz,
+    ) -> crate::error::Result<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)> {
+        if let Some(range) = self.range {
+            let resolved = resolve_stats_range(
+                timezone,
+                RangeQuery {
+                    range,
+                    year: self.year,
+                },
+            )?;
+            return Ok((resolved.start, resolved.end));
+        }
+        Ok((self.start, self.end))
+    }
+
     pub fn validate(&self) -> crate::error::Result<()> {
         if let (Some(start), Some(end)) = (self.start, self.end) {
             if start >= end {

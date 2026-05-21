@@ -100,6 +100,23 @@ pub struct FeatureRatioStats {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+pub struct FeatureAverageStats {
+    pub unique_tracks: i64,
+    pub featured_tracks: i64,
+    pub total_features: i64,
+    pub average_features_per_song: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+pub struct FeatureTimelinePoint {
+    pub bucket: String,
+    pub unique_tracks: i64,
+    pub featured_tracks: i64,
+    pub total_features: i64,
+    pub average_features_per_song: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
 pub struct AlbumReleaseYearPoint {
     pub release_year: Option<i32>,
     pub count: i64,
@@ -163,6 +180,17 @@ pub struct BucketedTopArtist {
     pub image_url: Option<String>,
     pub count: i64,
     pub duration_ms: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+pub struct HourlyTopArtist {
+    pub hour: i32,
+    pub artist_id: String,
+    pub artist_name: String,
+    pub image_url: Option<String>,
+    pub count: i64,
+    pub duration_ms: i64,
+    pub rank: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]

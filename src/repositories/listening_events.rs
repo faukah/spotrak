@@ -6,8 +6,9 @@ use crate::{
     domain::{
         stats::{
             AlbumReleaseYearPoint, AlbumReleaseYearsStats, BucketedTopAlbum, BucketedTopArtist,
-            BucketedTopTrack, DiversityTimelinePoint, EntityStats, FeatureRatioStats, HistoryEvent,
-            HourRepartitionPoint, LongestSession, SummaryStats, TimelinePoint, TopAlbum, TopArtist,
+            BucketedTopTrack, DiversityTimelinePoint, EntityStats, FeatureAverageStats,
+            FeatureRatioStats, FeatureTimelinePoint, HistoryEvent, HourRepartitionPoint,
+            HourlyTopArtist, LongestSession, SummaryStats, TimelinePoint, TopAlbum, TopArtist,
             TopTrack,
         },
         time::{Metric, TimeSplit},
@@ -232,6 +233,59 @@ pub async fn top_artists(
     Ok(rows)
 }
 
+pub async fn top_artists_by_hour(
+    pool: &PgPool,
+    user_id: Uuid,
+    timezone: &str,
+    metric: Metric,
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
+    limit_per_hour: i64,
+) -> Result<Vec<HourlyTopArtist>> {
+    let order = metric_order_expression(metric);
+    let sql = format!(
+        r#"
+        WITH ranked AS (
+          SELECT EXTRACT(HOUR FROM timezone($2, le.played_at))::int AS hour,
+                 ar.id AS artist_id,
+                 ar.name AS artist_name,
+                 COALESCE(
+                   ar.images->0->>'url',
+                   (array_remove(array_agg(COALESCE(t.images->0->>'url', a.images->0->>'url') ORDER BY le.played_at DESC, le.id DESC), NULL))[1]
+                 ) AS image_url,
+                 COUNT(*)::bigint AS count,
+                 COALESCE(SUM(le.duration_ms), 0)::bigint AS duration_ms,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY EXTRACT(HOUR FROM timezone($2, le.played_at))::int
+                   ORDER BY {order} DESC, ar.name ASC, ar.id ASC
+                 ) AS rank
+          FROM listening_events le
+          JOIN artists ar ON ar.id = le.primary_artist_id
+          JOIN tracks t ON t.id = le.track_id
+          JOIN albums a ON a.id = le.album_id
+          WHERE le.user_id = $1
+            AND le.blacklisted_by IS NULL
+            AND ($3::timestamptz IS NULL OR le.played_at >= $3)
+            AND ($4::timestamptz IS NULL OR le.played_at < $4)
+          GROUP BY EXTRACT(HOUR FROM timezone($2, le.played_at))::int, ar.id, ar.name, ar.images
+        )
+        SELECT hour, artist_id, artist_name, image_url, count, duration_ms, rank
+        FROM ranked
+        WHERE rank <= $5
+        ORDER BY hour ASC, rank ASC, artist_name ASC, artist_id ASC
+        "#
+    );
+    let rows = sqlx::query_as::<_, HourlyTopArtist>(&sql)
+        .bind(user_id)
+        .bind(timezone)
+        .bind(start)
+        .bind(end)
+        .bind(limit_per_hour)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
 pub async fn top_albums(
     pool: &PgPool,
     user_id: Uuid,
@@ -347,6 +401,93 @@ pub async fn feature_ratio(
     .fetch_one(pool)
     .await?;
     Ok(stats)
+}
+
+pub async fn feature_average(
+    pool: &PgPool,
+    user_id: Uuid,
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
+) -> Result<FeatureAverageStats> {
+    let stats = sqlx::query_as::<_, FeatureAverageStats>(
+        r#"
+        WITH listened_tracks AS (
+          SELECT DISTINCT le.track_id
+          FROM listening_events le
+          WHERE le.user_id = $1
+            AND le.blacklisted_by IS NULL
+            AND ($2::timestamptz IS NULL OR le.played_at >= $2)
+            AND ($3::timestamptz IS NULL OR le.played_at < $3)
+        ),
+        track_feature_counts AS (
+          SELECT lt.track_id,
+                 GREATEST(COUNT(ta.artist_id) - 1, 0)::bigint AS feature_count
+          FROM listened_tracks lt
+          LEFT JOIN track_artists ta ON ta.track_id = lt.track_id
+          GROUP BY lt.track_id
+        )
+        SELECT COUNT(*)::bigint AS unique_tracks,
+               COUNT(*) FILTER (WHERE feature_count > 0)::bigint AS featured_tracks,
+               COALESCE(SUM(feature_count), 0)::bigint AS total_features,
+               COALESCE(AVG(feature_count::float8), 0)::float8 AS average_features_per_song
+        FROM track_feature_counts
+        "#,
+    )
+    .bind(user_id)
+    .bind(start)
+    .bind(end)
+    .fetch_one(pool)
+    .await?;
+    Ok(stats)
+}
+
+pub async fn feature_timeline(
+    pool: &PgPool,
+    user_id: Uuid,
+    timezone: &str,
+    split: TimeSplit,
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
+) -> Result<Vec<FeatureTimelinePoint>> {
+    let grain = bucket_grain(split);
+    let rows = sqlx::query_as::<_, FeatureTimelinePoint>(
+        r#"
+        WITH listened_tracks AS (
+          SELECT date_trunc($3, timezone($2, le.played_at)) AS bucket,
+                 le.track_id
+          FROM listening_events le
+          WHERE le.user_id = $1
+            AND le.blacklisted_by IS NULL
+            AND ($4::timestamptz IS NULL OR le.played_at >= $4)
+            AND ($5::timestamptz IS NULL OR le.played_at < $5)
+          GROUP BY date_trunc($3, timezone($2, le.played_at)), le.track_id
+        ),
+        track_feature_counts AS (
+          SELECT lt.bucket,
+                 lt.track_id,
+                 GREATEST(COUNT(ta.artist_id) - 1, 0)::bigint AS feature_count
+          FROM listened_tracks lt
+          LEFT JOIN track_artists ta ON ta.track_id = lt.track_id
+          GROUP BY lt.bucket, lt.track_id
+        )
+        SELECT to_char(bucket, 'YYYY-MM-DD"T"HH24:MI:SS') AS bucket,
+               COUNT(*)::bigint AS unique_tracks,
+               COUNT(*) FILTER (WHERE feature_count > 0)::bigint AS featured_tracks,
+               COALESCE(SUM(feature_count), 0)::bigint AS total_features,
+               COALESCE(AVG(feature_count::float8), 0)::float8 AS average_features_per_song
+        FROM track_feature_counts
+        GROUP BY bucket
+        ORDER BY bucket ASC
+        "#,
+    )
+    .bind(user_id)
+    .bind(timezone)
+    .bind(grain)
+    .bind(start)
+    .bind(end)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
 }
 
 pub async fn album_release_years(
@@ -773,6 +914,91 @@ pub async fn top_artists_by_bucket(
         .bind(start)
         .bind(end)
         .bind(limit_per_bucket)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+pub async fn top_artists_by_bucket_with_other(
+    pool: &PgPool,
+    user_id: Uuid,
+    timezone: &str,
+    split: TimeSplit,
+    metric: Metric,
+    start: Option<DateTime<Utc>>,
+    end: Option<DateTime<Utc>>,
+    artist_limit: i64,
+) -> Result<Vec<BucketedTopArtist>> {
+    let grain = bucket_grain(split);
+    let order = match metric {
+        Metric::Count => "listen_count",
+        Metric::Duration => "total_duration_ms",
+    };
+    let sql = format!(
+        r#"
+        WITH filtered AS (
+          SELECT date_trunc($3, timezone($2, le.played_at)) AS bucket_date,
+                 le.primary_artist_id AS artist_id,
+                 le.duration_ms,
+                 le.played_at,
+                 le.id AS event_id,
+                 t.images AS track_images,
+                 a.images AS album_images
+          FROM listening_events le
+          JOIN tracks t ON t.id = le.track_id
+          JOIN albums a ON a.id = le.album_id
+          WHERE le.user_id = $1
+            AND le.blacklisted_by IS NULL
+            AND ($4::timestamptz IS NULL OR le.played_at >= $4)
+            AND ($5::timestamptz IS NULL OR le.played_at < $5)
+        ),
+        artist_totals AS (
+          SELECT ar.id,
+                 ar.name,
+                 COALESCE(
+                   ar.images->0->>'url',
+                   (array_remove(array_agg(COALESCE(f.track_images->0->>'url', f.album_images->0->>'url') ORDER BY f.played_at DESC, f.event_id DESC), NULL))[1]
+                 ) AS image_url,
+                 COUNT(*)::bigint AS listen_count,
+                 COALESCE(SUM(f.duration_ms), 0)::bigint AS total_duration_ms
+          FROM filtered f
+          JOIN artists ar ON ar.id = f.artist_id
+          GROUP BY ar.id, ar.name, ar.images
+        ),
+        top_artists AS (
+          SELECT *
+          FROM (
+            SELECT artist_totals.*,
+                   ROW_NUMBER() OVER (ORDER BY {order} DESC, name ASC, id ASC) AS rank
+            FROM artist_totals
+          ) ranked
+          WHERE rank <= $6
+        ),
+        bucketed AS (
+          SELECT to_char(f.bucket_date, 'YYYY-MM-DD"T"HH24:MI:SS') AS bucket,
+                 COALESCE(top_artists.id, '__other__') AS id,
+                 COALESCE(top_artists.name, 'Other artists') AS name,
+                 CASE WHEN top_artists.id IS NULL THEN NULL ELSE top_artists.image_url END AS image_url,
+                 COUNT(*)::bigint AS count,
+                 COALESCE(SUM(f.duration_ms), 0)::bigint AS duration_ms,
+                 COALESCE(top_artists.rank, $6 + 1) AS rank
+          FROM filtered f
+          LEFT JOIN top_artists ON top_artists.id = f.artist_id
+          GROUP BY f.bucket_date, top_artists.id, top_artists.name, top_artists.image_url, top_artists.rank
+        )
+        SELECT bucket, id, name, image_url, count, duration_ms
+        FROM bucketed
+        WHERE count > 0
+        ORDER BY bucket ASC, rank ASC, name ASC, id ASC
+        "#
+    );
+    let rows = sqlx::query_as::<_, BucketedTopArtist>(&sql)
+        .bind(user_id)
+        .bind(timezone)
+        .bind(grain)
+        .bind(start)
+        .bind(end)
+        .bind(artist_limit)
         .fetch_all(pool)
         .await?;
     Ok(rows)

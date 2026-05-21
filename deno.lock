@@ -18,9 +18,14 @@
     "npm:@deno/astro-adapter@latest": "0.5.1_astro@6.3.6",
     "npm:@lucide/svelte@1.16.0": "1.16.0_svelte@5.55.9",
     "npm:@tailwindcss/vite@4.3.0": "4.3.0_vite@7.3.3",
+    "npm:@types/d3-scale@4.0.9": "4.0.9",
+    "npm:@types/d3-shape@*": "3.1.8",
+    "npm:@types/d3-shape@3.1.8": "3.1.8",
     "npm:astro@6.3.5": "6.3.5",
     "npm:astro@6.3.6": "6.3.6",
     "npm:clsx@2.1.1": "2.1.1",
+    "npm:d3-scale@4.0.2": "4.0.2",
+    "npm:d3-shape@3.2.0": "3.2.0",
     "npm:date-fns@4.2.1": "4.2.1",
     "npm:layerchart@2.0.0-next.48": "2.0.0-next.48_svelte@5.55.9",
     "npm:openapi-typescript@7.13.0": "7.13.0_typescript@5.9.3",
@@ -1009,6 +1014,24 @@
         "@types/d3-array",
         "@types/geojson"
       ]
+    },
+    "@types/d3-path@3.1.1": {
+      "integrity": "sha512-VMZBYyQvbGmWyWVea0EHs/BwLgxc+MKi1zLDCONksozI4YJMcTt8ZEuIR4Sb1MMTE8MMW49v0IwI5+b7RmfWlg=="
+    },
+    "@types/d3-scale@4.0.9": {
+      "integrity": "sha512-dLmtwB8zkAeO/juAMfnV+sItKjlsw2lKdZVVy6LRr0cBmegxSABiLEpGVmSJJ8O08i4+sGR6qQtb6WtuwJdvVw==",
+      "dependencies": [
+        "@types/d3-time"
+      ]
+    },
+    "@types/d3-shape@3.1.8": {
+      "integrity": "sha512-lae0iWfcDeR7qt7rA88BNiqdvPS5pFVPpo5OfjElwNaT2yyekbM0C9vK+yqBqEmHr6lDkRnYNoTBYlAgJa7a4w==",
+      "dependencies": [
+        "@types/d3-path"
+      ]
+    },
+    "@types/d3-time@3.0.4": {
+      "integrity": "sha512-yuzZug1nkAAaBlBBikKZTgzCeA+k1uy4ZFwWANOfKw5z5LRhV0gNA7gNkKm7HoK+HRN0wX3EkxGk0fpbWhmB7g=="
     },
     "@types/debug@4.1.13": {
       "integrity": "sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==",
@@ -3529,8 +3552,12 @@
       "npm:@deno/astro-adapter@0.5.1",
       "npm:@lucide/svelte@1.16.0",
       "npm:@tailwindcss/vite@4.3.0",
+      "npm:@types/d3-scale@4.0.9",
+      "npm:@types/d3-shape@3.1.8",
       "npm:astro@6.3.6",
       "npm:clsx@2.1.1",
+      "npm:d3-scale@4.0.2",
+      "npm:d3-shape@3.2.0",
       "npm:date-fns@4.2.1",
       "npm:layerchart@2.0.0-next.48",
       "npm:svelte@5.55.9",

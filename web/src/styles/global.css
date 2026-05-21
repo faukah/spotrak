@@ -43,6 +43,18 @@
   navigation: auto;
 }
 
+:root {
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-state: 160ms;
+  --motion-feedback: 140ms;
+  --motion-route-enter: 180ms;
+  --motion-route-exit: 120ms;
+  --motion-theme: 360ms;
+  --motion-cover: 380ms;
+  --motion-cover-hover: 180ms;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -289,15 +301,21 @@ textarea {
   color: var(--color-text);
 }
 
-::view-transition-old(root),
+::view-transition-old(root) {
+  animation: spotrak-route-out var(--motion-route-exit) var(--ease-out-quart)
+    both;
+  mix-blend-mode: normal;
+}
+
 ::view-transition-new(root) {
-  animation-duration: 180ms;
-  animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  animation: spotrak-route-in var(--motion-route-enter) var(--ease-out-quart)
+    both;
+  mix-blend-mode: normal;
 }
 
 ::view-transition-group(*) {
-  animation-duration: 380ms;
-  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-duration: var(--motion-cover);
+  animation-timing-function: var(--ease-out-quint);
 }
 
 ::view-transition-old(*),
@@ -305,13 +323,84 @@ textarea {
   overflow: clip;
 }
 
-@media (max-width: 1120px) {
+::view-transition-group(.cover-art) {
+  animation-duration: var(--motion-cover);
+  animation-timing-function: var(--ease-out-quint);
+}
+
+::view-transition-image-pair(.cover-art),
+::view-transition-old(.cover-art),
+::view-transition-new(.cover-art) {
+  overflow: clip;
+}
+
+html[data-theme-transition="active"]::view-transition-old(root) {
+  animation: none;
+}
+
+html[data-theme-transition="active"]::view-transition-new(root) {
+  animation: spotrak-theme-reveal var(--motion-theme) var(--ease-out-quint)
+    both;
+}
+
+html[data-theme-transition="active"]::view-transition-group(root) {
+  animation-duration: var(--motion-theme);
+}
+
+@keyframes spotrak-route-out {
+  to {
+    opacity: 0.86;
+  }
+}
+
+@keyframes spotrak-route-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes spotrak-theme-reveal {
+  from {
+    clip-path: circle(
+      0 at var(--theme-transition-x, 100%)
+      var(--theme-transition-y, 0)
+    );
+  }
+
+  to {
+    clip-path: circle(
+      var(--theme-transition-radius, 150vmax)
+      at var(--theme-transition-x, 100%)
+      var(--theme-transition-y, 0)
+    );
+  }
+}
+
+@media (max-width: 1360px) {
   .site-header {
     grid-template-columns: auto minmax(12rem, 1fr) auto;
+    column-gap: 0.65rem;
+    row-gap: 0.55rem;
+  }
+
+  .site-header .brand {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .desktop-search {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .desktop-controls {
+    grid-column: 3;
+    grid-row: 1;
   }
 
   .shell-nav {
     grid-column: 1 / -1;
+    grid-row: 2;
     width: 100%;
   }
 
@@ -320,7 +409,8 @@ textarea {
   }
 
   .site-header.public-header .shell-nav {
-    grid-column: auto;
+    grid-column: 2;
+    grid-row: 1;
     width: auto;
   }
 }
@@ -377,5 +467,13 @@ textarea {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root),
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }
