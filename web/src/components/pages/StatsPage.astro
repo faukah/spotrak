@@ -1,0 +1,21 @@
+---
+import type { StatsDashboardBootstrapResponse } from '../../lib/api/types';
+import type { StatsRangeSelection } from '../../lib/stores/stats-range';
+import StatsDashboard from '../stats/StatsDashboard.svelte';
+
+interface Props {
+  apiPrefix?: string;
+  pagePrefix?: string;
+  initialBootstrap: StatsDashboardBootstrapResponse | null;
+  initialRange: StatsRangeSelection;
+}
+
+const {
+  apiPrefix = '',
+  pagePrefix = '',
+  initialBootstrap,
+  initialRange,
+} = Astro.props;
+---
+
+<StatsDashboard {apiPrefix} {pagePrefix} {initialBootstrap} {initialRange} client:idle />

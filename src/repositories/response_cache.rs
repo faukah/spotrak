@@ -8,6 +8,7 @@ use crate::{error::AppError, error::Result};
 
 pub const STATS_OVERVIEW_NAMESPACE: &str = "stats_overview_v1";
 pub const STATS_DASHBOARD_NAMESPACE: &str = "stats_dashboard_v1";
+pub const CURRENTLY_PLAYING_NAMESPACE: &str = "currently_playing_v1";
 
 pub async fn get<T>(
     pool: &PgPool,

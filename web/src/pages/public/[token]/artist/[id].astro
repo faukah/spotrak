@@ -1,7 +1,6 @@
 ---
-import PublicLayout from '../../../../components/layout/PublicLayout.astro';
-import PublicInvalid from '../../../../components/public/PublicInvalid.astro';
-import CatalogDetail from '../../../../components/cards/CatalogDetail.svelte';
+import CatalogDetailPage from '../../../../components/pages/CatalogDetailPage.astro';
+import PublicPageShell from '../../../../components/pages/PublicPageShell.astro';
 import type { ArtistDetail } from '../../../../lib/api/types';
 import { publicDetailContext } from '../../../../lib/public-share';
 const { token = '', id = '' } = Astro.params;
@@ -9,6 +8,6 @@ const transitionName = Astro.url.searchParams.get('vt') ?? undefined;
 const { apiPrefix, valid, initialDetail } = await publicDetailContext<ArtistDetail>(Astro.request, token, `/artists/${id}`);
 ---
 
-<PublicLayout title="Shared artist · Spotrak" token={token} guard={valid}>
-  {valid ? <CatalogDetail kind="artist" id={id} apiPrefix={apiPrefix} initialDetail={initialDetail} transitionName={transitionName} client:visible /> : <PublicInvalid />}
-</PublicLayout>
+<PublicPageShell title="Shared artist · Spotrak" {token} {valid}>
+  <CatalogDetailPage kind="artist" {id} {apiPrefix} {initialDetail} {transitionName} />
+</PublicPageShell>

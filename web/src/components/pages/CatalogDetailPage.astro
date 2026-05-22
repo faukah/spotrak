@@ -1,0 +1,25 @@
+---
+import type { AlbumDetail, ArtistDetail, TrackDetail } from '../../lib/api/types';
+import CatalogDetail from '../cards/CatalogDetail.svelte';
+
+type CatalogKind = 'track' | 'artist' | 'album';
+type Detail = TrackDetail | ArtistDetail | AlbumDetail;
+
+interface Props {
+  kind: CatalogKind;
+  id: string;
+  apiPrefix?: string;
+  initialDetail: Detail | null;
+  transitionName?: string;
+}
+
+const {
+  kind,
+  id,
+  apiPrefix = '',
+  initialDetail,
+  transitionName,
+} = Astro.props;
+---
+
+<CatalogDetail {kind} {id} {apiPrefix} {initialDetail} {transitionName} client:visible />

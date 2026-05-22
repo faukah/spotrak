@@ -4,6 +4,7 @@ pub mod catalog;
 pub mod health;
 pub mod imports;
 pub mod metrics;
+pub mod player;
 pub mod public;
 pub mod stats;
 pub mod users;
@@ -18,6 +19,7 @@ pub fn api_v1(import_body_limit: usize) -> Router<AppState> {
         .merge(auth::router())
         .merge(users::router())
         .merge(admin::router())
+        .merge(player::router())
         .merge(stats::router())
         .merge(catalog::router())
         .merge(imports::router().layer(DefaultBodyLimit::max(import_body_limit)))

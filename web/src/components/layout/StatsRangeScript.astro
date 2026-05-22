@@ -1,5 +1,6 @@
 ---
 import {
+  STATS_RANGE_COOKIE_MAX_AGE_SECONDS,
   STATS_RANGE_COOKIE_NAME,
   STATS_RANGE_STORAGE_KEY,
 } from '../../lib/stores/stats-range';
@@ -8,39 +9,17 @@ const script = `
 (() => {
   const storageKey = '${STATS_RANGE_STORAGE_KEY}';
   const cookieName = '${STATS_RANGE_COOKIE_NAME}';
-  const maxAge = 60 * 60 * 24 * 365;
-  const allowedRanges = new Set(['today', 'week', 'month', 'year', 'selected-year', 'all']);
-
-  const validYear = (value) => Number.isInteger(value) && value >= 1900 && value <= 3000;
-
-  const normalize = (selection) => {
-    if (!selection || typeof selection !== 'object' || !allowedRanges.has(selection.range)) {
-      return null;
-    }
-    if (selection.range !== 'selected-year') return { range: selection.range };
-    return {
-      range: 'selected-year',
-      year: validYear(selection.year) ? selection.year : new Date().getFullYear(),
-    };
-  };
+  const maxAge = ${STATS_RANGE_COOKIE_MAX_AGE_SECONDS};
 
   const persistCookie = () => {
     const stored = window.localStorage.getItem(storageKey);
     if (!stored) return;
-    try {
-      const normalized = normalize(JSON.parse(stored));
-      if (!normalized) return;
-      const serialized = JSON.stringify(normalized);
-      if (serialized !== stored) window.localStorage.setItem(storageKey, serialized);
-      document.cookie = [
-        cookieName + '=' + encodeURIComponent(serialized),
-        'Path=/',
-        'Max-Age=' + maxAge,
-        'SameSite=Lax',
-      ].join('; ');
-    } catch {
-      return;
-    }
+    document.cookie = [
+      cookieName + '=' + encodeURIComponent(stored),
+      'Path=/',
+      'Max-Age=' + maxAge,
+      'SameSite=Lax',
+    ].join('; ');
   };
 
   persistCookie();

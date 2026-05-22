@@ -8,7 +8,7 @@ use crate::error::{AppError, Result};
 
 pub type TimeBounds = (Option<DateTime<Utc>>, Option<DateTime<Utc>>);
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TimeSplit {
     #[default]
@@ -20,7 +20,7 @@ pub enum TimeSplit {
     Hour,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Metric {
     #[default]
@@ -137,7 +137,7 @@ pub fn resolve_stats_range(timezone: Tz, query: RangeQuery) -> Result<StatsRange
             StatsRangeResponse {
                 range: StatsRangeKey::Year,
                 label: "This year".to_owned(),
-                comparison_label: Some("last year".to_owned()),
+                comparison_label: Some("same period last year".to_owned()),
                 start: Some(local_midnight_utc(timezone, start_date)),
                 end: Some(now_utc),
                 previous_start: Some(local_midnight_utc(timezone, previous_start)),

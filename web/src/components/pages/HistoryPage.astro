@@ -1,0 +1,18 @@
+---
+import HistoryList from '../history/HistoryList.svelte';
+
+interface Props {
+  apiPrefix?: string;
+  pagePrefix?: string;
+  limit?: number;
+}
+
+const { apiPrefix = '', pagePrefix = '', limit = 50 } = Astro.props;
+---
+
+<section class="page-stack">
+  <div class="page-title">
+    <h1>History</h1>
+  </div>
+  <HistoryList {limit} {apiPrefix} {pagePrefix} client:visible />
+</section>

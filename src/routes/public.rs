@@ -3,24 +3,24 @@ use axum::{
     extract::{Path, Query, State},
     routing::get,
 };
-use chrono::{DateTime, Utc};
-use chrono_tz::Tz;
 use uuid::Uuid;
 
 use crate::{
     domain::{
         catalog::{AlbumDetail, ArtistDetail, TrackDetail},
+        player::CurrentlyPlayingResponse,
         settings::StatsDisplayPreferences,
         stats::{
             AlbumReleaseYearsStats, BucketedTopArtist, DiversityTimelinePoint, EntityStats,
             FeatureAverageStats, FeatureTimelinePoint, HistoryEvent, HourRepartitionPoint,
-            HourlyTopArtist, StatsDashboardResponse, SummaryStats, TimelinePoint, TopAlbum,
-            TopArtist, TopTrack,
+            HourlyTopArtist, OverviewStatsResponse, StatsDashboardBootstrapResponse,
+            StatsDashboardResponse, SummaryStats, TimelinePoint, TopAlbum, TopArtist, TopTrack,
         },
-        time::IntervalQuery,
+        time::{IntervalQuery, RangeQuery},
     },
     error::{AppError, Result},
-    repositories::{catalog, listening_events, public_tokens, settings},
+    repositories::{catalog, listening_events},
+    services::{player as player_service, stats as stats_service},
     state::AppState,
 };
 
@@ -31,8 +31,17 @@ pub fn router() -> Router<AppState> {
             "/public/{token}/stats/display-preferences",
             get(display_preferences),
         )
+        .route(
+            "/public/{token}/player/currently-playing",
+            get(currently_playing),
+        )
+        .route("/public/{token}/stats/overview", get(overview))
         .route("/public/{token}/stats/summary", get(summary))
         .route("/public/{token}/stats/dashboard", get(dashboard))
+        .route(
+            "/public/{token}/stats/dashboard/bootstrap",
+            get(dashboard_bootstrap),
+        )
         .route(
             "/public/{token}/stats/listening-over-time",
             get(listening_over_time),
@@ -76,12 +85,6 @@ pub fn router() -> Router<AppState> {
         .route("/public/{token}/albums/{id}/stats", get(album_stats))
 }
 
-async fn user_id_for_token(state: &AppState, token: &str) -> Result<Uuid> {
-    public_tokens::user_id_for_token(&state.db, token)
-        .await?
-        .ok_or(AppError::Unauthorized)
-}
-
 async fn ensure_public_track(state: &AppState, user_id: Uuid, id: &str) -> Result<()> {
     if catalog::user_has_track(&state.db, user_id, id).await? {
         return Ok(());
@@ -103,31 +106,6 @@ async fn ensure_public_album(state: &AppState, user_id: Uuid, id: &str) -> Resul
     Err(AppError::NotFound)
 }
 
-fn parse_timezone(value: &str) -> Result<Tz> {
-    value
-        .parse::<Tz>()
-        .map_err(|_| AppError::validation("user timezone must be an IANA timezone name"))
-}
-
-async fn interval_bounds(
-    state: &AppState,
-    user_id: Uuid,
-    query: &IntervalQuery,
-) -> Result<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)> {
-    if query.range.is_none() {
-        return Ok((query.start, query.end));
-    }
-    let timezone = user_timezone(state, user_id).await?;
-    query.resolved_bounds(parse_timezone(&timezone)?)
-}
-
-async fn user_timezone(state: &AppState, user_id: Uuid) -> Result<String> {
-    let user_settings = settings::get(&state.db, user_id).await?;
-    Ok(user_settings
-        .timezone
-        .unwrap_or_else(|| state.config.timezone.name().to_owned()))
-}
-
 #[utoipa::path(
     get,
     path = "/api/v1/public/{token}/stats/display-preferences",
@@ -137,11 +115,42 @@ pub async fn display_preferences(
     State(state): State<AppState>,
     Path(token): Path<String>,
 ) -> Result<Json<StatsDisplayPreferences>> {
-    let user_id = user_id_for_token(&state, &token).await?;
-    let user_settings = settings::get(&state.db, user_id).await?;
+    let context = stats_service::public_context(&state, &token).await?;
     Ok(Json(StatsDisplayPreferences {
-        hour_format: user_settings.hour_format,
+        hour_format: context.hour_format,
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/public/{token}/player/currently-playing",
+    responses((status = 200, description = "Public currently playing Spotify track", body = CurrentlyPlayingResponse))
+)]
+pub async fn currently_playing(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> Result<Json<CurrentlyPlayingResponse>> {
+    let context = stats_service::public_context(&state, &token).await?;
+    Ok(Json(
+        player_service::currently_playing_for_user(&state, context.user_id).await?,
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/public/{token}/stats/overview",
+    params(RangeQuery),
+    responses((status = 200, description = "Public overview dashboard data", body = OverviewStatsResponse))
+)]
+pub async fn overview(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    Query(query): Query<RangeQuery>,
+) -> Result<Json<OverviewStatsResponse>> {
+    let context = stats_service::public_context(&state, &token).await?;
+    Ok(Json(
+        stats_service::overview_for_context(&state, &context, query).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -156,9 +165,27 @@ pub async fn dashboard(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<StatsDashboardResponse>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
+    let context = stats_service::public_context(&state, &token).await?;
     Ok(Json(
-        crate::routes::stats::dashboard_for_user(&state, user_id, query).await?,
+        stats_service::dashboard_for_context(&state, &context, query).await?,
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/public/{token}/stats/dashboard/bootstrap",
+    params(IntervalQuery),
+    responses((status = 200, description = "Public stats dashboard bootstrap data", body = StatsDashboardBootstrapResponse))
+)]
+pub async fn dashboard_bootstrap(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+    Query(query): Query<IntervalQuery>,
+) -> Result<Json<StatsDashboardBootstrapResponse>> {
+    query.validate()?;
+    let context = stats_service::public_context(&state, &token).await?;
+    Ok(Json(
+        stats_service::dashboard_bootstrap_for_context(&state, &context, query).await?,
     ))
 }
 
@@ -174,12 +201,12 @@ pub async fn history(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<Vec<HistoryEvent>>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let (start, end) = interval_bounds(&state, user_id, &query).await?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
         listening_events::history(
             &state.db,
-            user_id,
+            context.user_id,
             start,
             end,
             query.limit_or(50),
@@ -201,10 +228,10 @@ pub async fn summary(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<SummaryStats>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let (start, end) = interval_bounds(&state, user_id, &query).await?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
-        listening_events::summary(&state.db, user_id, start, end).await?,
+        listening_events::summary(&state.db, context.user_id, start, end).await?,
     ))
 }
 
@@ -220,11 +247,18 @@ pub async fn listening_over_time(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<Vec<TimelinePoint>>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let timezone = user_timezone(&state, user_id).await?;
-    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
-        listening_events::timeline(&state.db, user_id, &timezone, query.split, start, end).await?,
+        listening_events::timeline(
+            &state.db,
+            context.user_id,
+            &context.timezone_name,
+            query.split,
+            start,
+            end,
+        )
+        .await?,
     ))
 }
 
@@ -240,13 +274,12 @@ pub async fn top_tracks(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<Vec<TopTrack>>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let timezone = user_timezone(&state, user_id).await?;
-    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
         listening_events::top_tracks(
             &state.db,
-            user_id,
+            context.user_id,
             query.metric,
             start,
             end,
@@ -269,13 +302,12 @@ pub async fn top_artists(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<Vec<TopArtist>>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let timezone = user_timezone(&state, user_id).await?;
-    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
         listening_events::top_artists(
             &state.db,
-            user_id,
+            context.user_id,
             query.metric,
             start,
             end,
@@ -298,14 +330,13 @@ pub async fn top_artists_by_bucket(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<Vec<BucketedTopArtist>>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let timezone = user_timezone(&state, user_id).await?;
-    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     let rows = if query.group_other.unwrap_or(false) {
         listening_events::top_artists_by_bucket_with_other(
             &state.db,
-            user_id,
-            &timezone,
+            context.user_id,
+            &context.timezone_name,
             query.split,
             query.metric,
             start,
@@ -316,8 +347,8 @@ pub async fn top_artists_by_bucket(
     } else {
         listening_events::top_artists_by_bucket(
             &state.db,
-            user_id,
-            &timezone,
+            context.user_id,
+            &context.timezone_name,
             query.split,
             query.metric,
             start,
@@ -341,14 +372,13 @@ pub async fn top_artists_by_hour(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<Vec<HourlyTopArtist>>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let timezone = user_timezone(&state, user_id).await?;
-    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
         listening_events::top_artists_by_hour(
             &state.db,
-            user_id,
-            &timezone,
+            context.user_id,
+            &context.timezone_name,
             query.metric,
             start,
             end,
@@ -370,13 +400,12 @@ pub async fn top_albums(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<Vec<TopAlbum>>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let timezone = user_timezone(&state, user_id).await?;
-    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
         listening_events::top_albums(
             &state.db,
-            user_id,
+            context.user_id,
             query.metric,
             start,
             end,
@@ -399,11 +428,17 @@ pub async fn hour_repartition_tracks(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<Vec<HourRepartitionPoint>>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let timezone = user_timezone(&state, user_id).await?;
-    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
-        listening_events::hour_repartition(&state.db, user_id, &timezone, start, end).await?,
+        listening_events::hour_repartition(
+            &state.db,
+            context.user_id,
+            &context.timezone_name,
+            start,
+            end,
+        )
+        .await?,
     ))
 }
 
@@ -419,10 +454,10 @@ pub async fn feature_average(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<FeatureAverageStats>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let (start, end) = interval_bounds(&state, user_id, &query).await?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
-        listening_events::feature_average(&state.db, user_id, start, end).await?,
+        listening_events::feature_average(&state.db, context.user_id, start, end).await?,
     ))
 }
 
@@ -438,12 +473,18 @@ pub async fn feature_average_over_time(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<Vec<FeatureTimelinePoint>>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let timezone = user_timezone(&state, user_id).await?;
-    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
-        listening_events::feature_timeline(&state.db, user_id, &timezone, query.split, start, end)
-            .await?,
+        listening_events::feature_timeline(
+            &state.db,
+            context.user_id,
+            &context.timezone_name,
+            query.split,
+            start,
+            end,
+        )
+        .await?,
     ))
 }
 
@@ -459,10 +500,10 @@ pub async fn album_release_years(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<AlbumReleaseYearsStats>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let (start, end) = interval_bounds(&state, user_id, &query).await?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
-        listening_events::album_release_years(&state.db, user_id, start, end).await?,
+        listening_events::album_release_years(&state.db, context.user_id, start, end).await?,
     ))
 }
 
@@ -475,8 +516,8 @@ pub async fn track(
     State(state): State<AppState>,
     Path((token, id)): Path<(String, String)>,
 ) -> Result<Json<TrackDetail>> {
-    let user_id = user_id_for_token(&state, &token).await?;
-    ensure_public_track(&state, user_id, &id).await?;
+    let context = stats_service::public_context(&state, &token).await?;
+    ensure_public_track(&state, context.user_id, &id).await?;
     Ok(Json(catalog::track(&state.db, &id).await?))
 }
 
@@ -489,9 +530,11 @@ pub async fn artist(
     State(state): State<AppState>,
     Path((token, id)): Path<(String, String)>,
 ) -> Result<Json<ArtistDetail>> {
-    let user_id = user_id_for_token(&state, &token).await?;
-    ensure_public_artist(&state, user_id, &id).await?;
-    Ok(Json(catalog::artist(&state.db, user_id, &id).await?))
+    let context = stats_service::public_context(&state, &token).await?;
+    ensure_public_artist(&state, context.user_id, &id).await?;
+    Ok(Json(
+        catalog::artist(&state.db, context.user_id, &id).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -503,8 +546,8 @@ pub async fn album(
     State(state): State<AppState>,
     Path((token, id)): Path<(String, String)>,
 ) -> Result<Json<AlbumDetail>> {
-    let user_id = user_id_for_token(&state, &token).await?;
-    ensure_public_album(&state, user_id, &id).await?;
+    let context = stats_service::public_context(&state, &token).await?;
+    ensure_public_album(&state, context.user_id, &id).await?;
     Ok(Json(catalog::album(&state.db, &id).await?))
 }
 
@@ -520,13 +563,13 @@ pub async fn track_stats(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<EntityStats>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    ensure_public_track(&state, user_id, &id).await?;
-    let (start, end) = interval_bounds(&state, user_id, &query).await?;
+    let context = stats_service::public_context(&state, &token).await?;
+    ensure_public_track(&state, context.user_id, &id).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
         listening_events::entity_stats(
             &state.db,
-            user_id,
+            context.user_id,
             listening_events::EntityFilter::Track(&id),
             start,
             end,
@@ -547,13 +590,13 @@ pub async fn artist_stats(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<EntityStats>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    ensure_public_artist(&state, user_id, &id).await?;
-    let (start, end) = interval_bounds(&state, user_id, &query).await?;
+    let context = stats_service::public_context(&state, &token).await?;
+    ensure_public_artist(&state, context.user_id, &id).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
         listening_events::entity_stats(
             &state.db,
-            user_id,
+            context.user_id,
             listening_events::EntityFilter::Artist(&id),
             start,
             end,
@@ -574,13 +617,13 @@ pub async fn album_stats(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<EntityStats>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    ensure_public_album(&state, user_id, &id).await?;
-    let (start, end) = interval_bounds(&state, user_id, &query).await?;
+    let context = stats_service::public_context(&state, &token).await?;
+    ensure_public_album(&state, context.user_id, &id).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
         listening_events::entity_stats(
             &state.db,
-            user_id,
+            context.user_id,
             listening_events::EntityFilter::Album(&id),
             start,
             end,
@@ -601,14 +644,13 @@ pub async fn diversity_over_time(
     Query(query): Query<IntervalQuery>,
 ) -> Result<Json<Vec<DiversityTimelinePoint>>> {
     query.validate()?;
-    let user_id = user_id_for_token(&state, &token).await?;
-    let timezone = user_timezone(&state, user_id).await?;
-    let (start, end) = query.resolved_bounds(parse_timezone(&timezone)?)?;
+    let context = stats_service::public_context(&state, &token).await?;
+    let (start, end) = context.interval_bounds(&query)?;
     Ok(Json(
         listening_events::diversity_timeline(
             &state.db,
-            user_id,
-            &timezone,
+            context.user_id,
+            &context.timezone_name,
             query.split,
             start,
             end,

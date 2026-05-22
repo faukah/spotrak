@@ -1,0 +1,14 @@
+---
+import type { OverviewStatsResponse } from '../../lib/api/types';
+import OverviewDashboard from '../overview/OverviewDashboard.svelte';
+
+interface Props {
+  apiPrefix?: string;
+  pagePrefix?: string;
+  initialOverview: OverviewStatsResponse | null;
+}
+
+const { apiPrefix = '', pagePrefix = '', initialOverview } = Astro.props;
+---
+
+<OverviewDashboard {apiPrefix} {pagePrefix} {initialOverview} client:idle />

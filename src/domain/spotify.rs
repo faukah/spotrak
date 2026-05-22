@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 
 #[allow(dead_code)]
@@ -95,6 +96,15 @@ pub struct SpotifyRecentlyPlayedResponse {
     #[serde(default)]
     pub items: Vec<SpotifyRecentlyPlayedItem>,
     pub next: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SpotifyCurrentlyPlayingResponse {
+    pub progress_ms: Option<i32>,
+    #[serde(default)]
+    pub is_playing: bool,
+    pub currently_playing_type: Option<String>,
+    pub item: Option<Value>,
 }
 
 #[allow(dead_code)]

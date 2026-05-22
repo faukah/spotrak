@@ -1,23 +1,47 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import { apiFetch } from '../../lib/api/client';
-  import type { HistoryEvent, MeResponse } from '../../lib/api/types';
+  import type { HistoryEvent, MeResponse, TimelinePoint } from '../../lib/api/types';
   import { formatDateTime, formatDuration } from '../../lib/date/format';
   import { transitionHref, viewTransitionName } from '../../lib/images';
+  import {
+    selectedStatsRange,
+    statsRangeQuery,
+    statsRangeSelectionKey,
+    type StatsRangeSelection,
+  } from '../../lib/stores/stats-range';
   import CoverArt from '../media/CoverArt.svelte';
+  import StatsRangePicker from '../stats/StatsRangePicker.svelte';
   import * as Card from '../ui/card';
 
   export let limit = 25;
   export let apiPrefix = '';
   export let pagePrefix = '';
+  export let showRangePicker = true;
 
   let events: HistoryEvent[] = [];
+  let availableYears: number[] = [new Date().getFullYear()];
   let loading = true;
   let error: string | null = null;
   let timezone: string | null = null;
+  let activeRange: StatsRangeSelection = { range: 'all' };
+  let unsubscribeRange: (() => void) | undefined;
 
   onMount(() => {
+    activeRange = get(selectedStatsRange);
     void load();
+    if (showRangePicker) void loadAvailableYears();
+
+    unsubscribeRange = selectedStatsRange.subscribe((selection) => {
+      if (statsRangeSelectionKey(selection) === statsRangeSelectionKey(activeRange)) return;
+      activeRange = selection;
+      void load();
+    });
+
+    return () => {
+      unsubscribeRange?.();
+    };
   });
 
   function coverTransition(event: HistoryEvent): string {
@@ -26,24 +50,44 @@
 
   async function load() {
     loading = true;
+    error = null;
     try {
       if (!apiPrefix) {
         const me = await apiFetch<MeResponse>('/users/me');
         timezone = me.settings.timezone ?? null;
       }
-      events = await apiFetch<HistoryEvent[]>(`${apiPrefix}/history?limit=${limit}`);
+      const params = new URLSearchParams(statsRangeQuery(activeRange));
+      params.set('limit', String(limit));
+      events = await apiFetch<HistoryEvent[]>(`${apiPrefix}/history?${params.toString()}`);
     } catch (err) {
       error = err instanceof Error ? err.message : 'Unable to load history';
     } finally {
       loading = false;
     }
   }
+
+  async function loadAvailableYears() {
+    try {
+      const timeline = await apiFetch<TimelinePoint[]>(`${apiPrefix}/stats/listening-over-time?split=year`);
+      const years = timeline
+        .map((point) => Number(point.bucket.slice(0, 4)))
+        .filter((year) => Number.isInteger(year));
+      availableYears = Array.from(new Set([...availableYears, ...years])).toSorted((a, b) => b - a);
+    } catch {
+      availableYears = [...availableYears];
+    }
+  }
 </script>
 
 <Card.Root class="history-card">
-  <Card.Header>
-    <Card.Description>{limit} latest plays</Card.Description>
-    <Card.Title>Recent listening history</Card.Title>
+  <Card.Header class="history-header">
+    <div>
+      <Card.Description>{limit} latest plays</Card.Description>
+      <Card.Title>Recent listening history</Card.Title>
+    </div>
+    {#if showRangePicker}
+      <StatsRangePicker {availableYears} ariaLabel="Choose history time range" />
+    {/if}
   </Card.Header>
   <Card.Content>
     {#if loading}
@@ -53,7 +97,7 @@
     {:else if error}
       <p class="state error">{error}</p>
     {:else if events.length === 0}
-      <p class="state">No plays yet. Polling or imports will populate your history.</p>
+      <p class="state">No plays for this range.</p>
     {:else}
       <ol class="rows">
         {#each events as event (event.id)}
@@ -73,6 +117,13 @@
 </Card.Root>
 
 <style>
+  :global(.history-header) {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
   .rows {
     display: grid;
     gap: 0.2rem;
@@ -146,6 +197,11 @@
   }
 
   @media (max-width: 760px) {
+    :global(.history-header) {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
     li {
       grid-template-columns: auto minmax(0, 1fr);
     }

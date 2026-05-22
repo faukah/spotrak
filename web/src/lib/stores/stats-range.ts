@@ -9,7 +9,7 @@ export interface StatsRangeSelection {
 export const STATS_RANGE_STORAGE_KEY = "spotrak.statsRange";
 export const STATS_RANGE_COOKIE_NAME = "spotrak_stats_range";
 
-const STATS_RANGE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+export const STATS_RANGE_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 export const statsRangeOptions: { key: StatsRangeKey; label: string }[] = [
   { key: "today", label: "Today" },

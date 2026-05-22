@@ -20,11 +20,8 @@ export default defineConfig({
         allow: [repoRoot],
       },
     },
-    optimizeDeps: {
-      exclude: ["layerchart"],
-    },
     ssr: {
-      noExternal: ["@lucide/svelte", "layerchart"],
+      noExternal: ["@lucide/svelte"],
     },
   },
 });

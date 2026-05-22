@@ -4,6 +4,22 @@ use sqlx::FromRow;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemePreference {
+    Follow,
+    Dark,
+    Light,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub enum HourFormat {
+    #[serde(rename = "12")]
+    Twelve,
+    #[serde(rename = "24")]
+    TwentyFour,
+}
+
 #[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
 pub struct UserSettings {
     pub user_id: Uuid,
@@ -11,9 +27,11 @@ pub struct UserSettings {
     pub preferred_stats_period: String,
     pub nb_elements: i32,
     pub metric_used: String,
+    #[schema(value_type = ThemePreference)]
     pub dark_mode: String,
     pub timezone: Option<String>,
     pub date_format: String,
+    #[schema(value_type = HourFormat)]
     pub hour_format: String,
     pub updated_at: DateTime<Utc>,
 }
@@ -27,6 +45,7 @@ pub struct GlobalPreferences {
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct StatsDisplayPreferences {
+    #[schema(value_type = HourFormat)]
     pub hour_format: String,
 }
 
@@ -36,9 +55,11 @@ pub struct SettingsPatch {
     pub preferred_stats_period: Option<String>,
     pub nb_elements: Option<i32>,
     pub metric_used: Option<String>,
+    #[schema(value_type = Option<ThemePreference>)]
     pub dark_mode: Option<String>,
     pub timezone: Option<Option<String>>,
     pub date_format: Option<String>,
+    #[schema(value_type = Option<HourFormat>)]
     pub hour_format: Option<String>,
 }
 

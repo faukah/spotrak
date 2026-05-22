@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -10,6 +11,7 @@ use reqwest::Client;
 use secrecy::ExposeSecret;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use crate::{config::Config, error::Result};
 
@@ -19,6 +21,7 @@ pub struct AppState {
     pub db: PgPool,
     pub http: Client,
     pub spotify_limiter: Arc<Mutex<Instant>>,
+    pub currently_playing_locks: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
     pub metrics: Arc<AppMetrics>,
 }
 
@@ -75,6 +78,7 @@ impl AppState {
             db,
             http,
             spotify_limiter: Arc::new(Mutex::new(Instant::now())),
+            currently_playing_locks: Arc::new(Mutex::new(HashMap::new())),
             metrics: Arc::new(AppMetrics::default()),
         })
     }

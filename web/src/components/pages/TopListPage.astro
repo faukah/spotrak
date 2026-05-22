@@ -1,0 +1,22 @@
+---
+import TopList from '../cards/TopList.svelte';
+
+type TopListKind = 'tracks' | 'artists' | 'albums';
+
+interface Props {
+  kind: TopListKind;
+  apiPrefix?: string;
+  pagePrefix?: string;
+  limit?: number;
+}
+
+const { kind, apiPrefix = '', pagePrefix = '', limit = 50 } = Astro.props;
+const title = `Top ${kind}`;
+---
+
+<section class="page-stack">
+  <div class="page-title">
+    <h1>{title}</h1>
+  </div>
+  <TopList {kind} {limit} {apiPrefix} {pagePrefix} client:visible />
+</section>

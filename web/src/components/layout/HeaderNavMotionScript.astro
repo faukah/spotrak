@@ -1,0 +1,162 @@
+---
+const script = `
+(() => {
+  const state = window.__spotrakNavMotion ??= {
+    installed: false,
+    previousRect: null,
+    positionAll: null,
+  };
+
+  const duration = 420;
+  const easing = 'linear(0, 0.006 1.2%, 0.026 2.7%, 0.082 5.7%, 0.19 9.8%, 0.352 15.2%, 0.548 22.1%, 0.742 31.3%, 0.884 43.2%, 0.958 58.9%, 0.991 78.2%, 1)';
+  const fallbackEasing = 'cubic-bezier(0.22, 1, 0.36, 1)';
+  const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+  const isVisible = (element) =>
+    element instanceof HTMLElement &&
+    element.getClientRects().length > 0 &&
+    window.getComputedStyle(element).display !== 'none';
+
+  const shellNavs = () =>
+    Array.from(document.querySelectorAll('.shell-nav')).filter(isVisible);
+
+  const cardFor = (nav) => nav.querySelector('.shell-nav-active-card');
+  const activeLinkFor = (nav) => nav.querySelector('a[aria-current="page"]');
+
+  const clearPending = (nav) => {
+    for (const link of nav.querySelectorAll('[data-nav-pending]')) {
+      delete link.dataset.navPending;
+    }
+  };
+
+  const setCardToLink = (nav, link) => {
+    const card = cardFor(nav);
+    if (!(card instanceof HTMLElement)) return null;
+
+    if (!(link instanceof HTMLElement) || !isVisible(link)) {
+      delete nav.dataset.navCardReady;
+      return null;
+    }
+
+    nav.style.setProperty('--shell-nav-card-x', link.offsetLeft + 'px');
+    nav.style.setProperty('--shell-nav-card-y', link.offsetTop + 'px');
+    nav.style.setProperty('--shell-nav-card-width', link.offsetWidth + 'px');
+    nav.style.setProperty('--shell-nav-card-height', link.offsetHeight + 'px');
+    nav.dataset.navCardReady = 'true';
+
+    return card.getBoundingClientRect();
+  };
+
+  const animateCard = (nav, fromRect) => {
+    const card = cardFor(nav);
+    if (!(card instanceof HTMLElement) || !fromRect || reducedMotionQuery.matches) return;
+
+    const toRect = card.getBoundingClientRect();
+    if (!toRect.width || !toRect.height) return;
+
+    const dx = fromRect.left - toRect.left;
+    const dy = fromRect.top - toRect.top;
+    const scaleX = fromRect.width / toRect.width;
+    const scaleY = fromRect.height / toRect.height;
+
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(scaleX - 1) < 0.01 && Math.abs(scaleY - 1) < 0.01) {
+      return;
+    }
+
+    for (const animation of card.getAnimations()) animation.cancel();
+
+    const keyframes = [
+      {
+        opacity: 0.92,
+        transform: 'translate3d(' + dx + 'px, ' + dy + 'px, 0) scale(' + scaleX + ', ' + scaleY + ')',
+      },
+      {
+        opacity: 1,
+        transform: 'translate3d(0, 0, 0) scale(1, 1)',
+      },
+    ];
+
+    try {
+      card.animate(keyframes, { duration, easing, fill: 'both' });
+    } catch {
+      card.animate(keyframes, { duration, easing: fallbackEasing, fill: 'both' });
+    }
+  };
+
+  const currentCardRect = (nav) => {
+    const card = cardFor(nav);
+    if (card instanceof HTMLElement && nav.dataset.navCardReady === 'true') {
+      return card.getBoundingClientRect();
+    }
+
+    const activeLink = activeLinkFor(nav);
+    return activeLink instanceof HTMLElement ? activeLink.getBoundingClientRect() : null;
+  };
+
+  const captureCurrentRect = () => {
+    const nav = shellNavs().find((candidate) => activeLinkFor(candidate));
+    state.previousRect = nav ? currentCardRect(nav) : null;
+  };
+
+  const positionNav = (nav, animate) => {
+    clearPending(nav);
+    const activeLink = activeLinkFor(nav);
+    if (!(activeLink instanceof HTMLElement)) {
+      setCardToLink(nav, null);
+      return;
+    }
+
+    const fromRect = animate ? state.previousRect : null;
+    setCardToLink(nav, activeLink);
+    animateCard(nav, fromRect);
+  };
+
+  const positionAll = (animate = false) => {
+    for (const nav of shellNavs()) positionNav(nav, animate);
+    state.previousRect = null;
+  };
+
+  const handleNavClick = (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+    const link = event.target instanceof Element ? event.target.closest('.shell-nav a[href]') : null;
+    if (!(link instanceof HTMLAnchorElement)) return;
+
+    const targetUrl = new URL(link.href, window.location.href);
+    if (targetUrl.origin !== window.location.origin) return;
+
+    const nav = link.closest('.shell-nav');
+    if (!(nav instanceof HTMLElement) || !isVisible(nav)) return;
+
+    const fromRect = currentCardRect(nav) ?? link.getBoundingClientRect();
+    clearPending(nav);
+    link.dataset.navPending = 'true';
+    setCardToLink(nav, link);
+    animateCard(nav, fromRect);
+    state.previousRect = currentCardRect(nav);
+  };
+
+  state.positionAll = positionAll;
+
+  if (!state.installed) {
+    state.installed = true;
+
+    document.addEventListener('click', handleNavClick, true);
+    document.addEventListener('astro:before-preparation', captureCurrentRect);
+    document.addEventListener('astro:before-swap', captureCurrentRect);
+    document.addEventListener('astro:after-swap', () => {
+      window.requestAnimationFrame(() => positionAll(true));
+    });
+    document.addEventListener('astro:page-load', () => {
+      window.requestAnimationFrame(() => positionAll(false));
+    });
+    window.addEventListener('resize', () => window.requestAnimationFrame(() => positionAll(false)));
+    reducedMotionQuery.addEventListener('change', () => positionAll(false));
+  }
+
+  window.requestAnimationFrame(() => positionAll(false));
+})();
+`;
+---
+
+<script is:inline set:html={script}></script>

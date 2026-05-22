@@ -41,6 +41,7 @@
 
   $: visibleMetrics = metrics.filter((metric) => !hiddenMetricKeys.has(metric.key));
   $: hasPoints = metrics.some((metric) => metric.points.length > 0);
+  $: metricsByKey = new Map(metrics.map((metric) => [metric.key, metric]));
   $: chartData = buildChartData(metrics);
   $: chartConfig = Object.fromEntries(
     metrics.map((metric) => [metric.key, { label: metric.label, color: metric.color }]),
@@ -91,7 +92,8 @@
   }
 
   function metricForKey(key: string | undefined): BucketMetric | undefined {
-    return metrics.find((metric) => metric.key === key);
+    if (!key) return undefined;
+    return metricsByKey.get(key);
   }
 
   function metricValue(metric: BucketMetric, row: BucketDatum): number {
@@ -136,7 +138,6 @@
           disabled={!hiddenMetricKeys.has(metric.key) && visibleMetrics.length === 1}
           onclick={() => toggleMetric(metric.key)}
         >
-          <span aria-hidden="true">{hiddenMetricKeys.has(metric.key) ? '' : '✓'}</span>
           {metric.label}
         </Button>
       {/each}
@@ -170,7 +171,7 @@
                 stroke: 'none',
                 strokeWidth: 0,
                 rounded: 'all',
-                motion: { type: 'tween', duration: 220, easing: quintOut },
+                motion: { type: 'tween', duration: 90, easing: quintOut },
               },
               xAxis: { ticks: xTickStride },
               yAxis: { format: formatAxisValue, ticks: 4 },
@@ -234,13 +235,6 @@
     flex-wrap: wrap;
     gap: 0.35rem;
     justify-content: flex-end;
-  }
-
-  :global(.metric-toggle span) {
-    display: inline-block;
-    width: 0.65rem;
-    color: var(--color-primary);
-    text-align: center;
   }
 
   .bucket-chart-frame {

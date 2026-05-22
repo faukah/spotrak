@@ -70,6 +70,7 @@
   </Button>
   {#if open}
     <div class="range-dropdown" aria-label={ariaLabel}>
+      <span class="dropdown-label">Presets</span>
       <div class="dropdown-group">
         {#each statsRangeOptions as option (option.key)}
           <button type="button" aria-pressed={$selectedStatsRange.range === option.key} class:active-range={$selectedStatsRange.range === option.key} onclick={() => setRange(option.key)}>
@@ -79,7 +80,7 @@
         {/each}
       </div>
       <div class="dropdown-separator"></div>
-      <span class="dropdown-label">Years</span>
+      <span class="dropdown-label">Archive years</span>
       <div class="dropdown-group years">
         {#each years as year (year)}
           <button type="button" aria-pressed={$selectedStatsRange.range === 'selected-year' && $selectedStatsRange.year === year} class:active-range={$selectedStatsRange.range === 'selected-year' && $selectedStatsRange.year === year} onclick={() => chooseYear(year)}>
@@ -134,7 +135,8 @@
   }
 
   .dropdown-group.years {
-    max-height: 13rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: 11.5rem;
     overflow-y: auto;
   }
 
@@ -159,13 +161,17 @@
     gap: 0.7rem;
     border: 0;
     border-radius: var(--radius-sm);
-    padding: 0.48rem 0.5rem;
+    padding: 0.46rem 0.5rem;
     background: transparent;
     color: var(--color-text);
     font-size: 0.84rem;
     font-weight: 650;
     text-align: left;
     cursor: pointer;
+  }
+
+  .dropdown-group.years button {
+    padding-block: 0.4rem;
   }
 
   .range-dropdown button:hover,

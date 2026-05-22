@@ -1,0 +1,16 @@
+---
+import PublicLayout from '../layout/PublicLayout.astro';
+import PublicInvalid from '../public/PublicInvalid.astro';
+
+interface Props {
+  title: string;
+  token: string;
+  valid: boolean;
+}
+
+const { title, token, valid } = Astro.props;
+---
+
+<PublicLayout {title} {token} guard={valid}>
+  {valid ? <slot /> : <PublicInvalid />}
+</PublicLayout>

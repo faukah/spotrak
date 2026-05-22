@@ -1,31 +1,19 @@
 ---
 import AppLayout from '../components/layout/AppLayout.astro';
-import OverviewDashboard from '../components/overview/OverviewDashboard.svelte';
+import OverviewPage from '../components/pages/OverviewPage.astro';
 import { serverApiFetch } from '../lib/api/server';
 import type { OverviewStatsResponse } from '../lib/api/types';
-import {
-  parseStatsRangeSelection,
-  STATS_RANGE_COOKIE_NAME,
-  statsRangeQuery,
-} from '../lib/stores/stats-range';
+import { overviewQuery, statsRangeFromCookie } from '../lib/stats-page';
+import { STATS_RANGE_COOKIE_NAME } from '../lib/stores/stats-range';
 
 const rangeCookie = Astro.cookies.get(STATS_RANGE_COOKIE_NAME)?.value ?? null;
-const initialRange = parseStatsRangeSelection(decodeCookieValue(rangeCookie));
+const initialRange = statsRangeFromCookie(rangeCookie);
 const initialOverview = await serverApiFetch<OverviewStatsResponse>(
   Astro.request,
-  `/stats/overview?${statsRangeQuery(initialRange)}`,
+  `/stats/overview?${overviewQuery(initialRange)}`,
 );
-
-function decodeCookieValue(value: string | null) {
-  if (!value) return null;
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
 ---
 
 <AppLayout title="Overview · Spotrak">
-  <OverviewDashboard initialOverview={initialOverview} client:idle />
+  <OverviewPage {initialOverview} />
 </AppLayout>

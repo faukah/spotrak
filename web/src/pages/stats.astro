@@ -1,8 +1,19 @@
 ---
 import AppLayout from '../components/layout/AppLayout.astro';
-import StatsDashboard from '../components/stats/StatsDashboard.svelte';
+import StatsPage from '../components/pages/StatsPage.astro';
+import { serverApiFetch } from '../lib/api/server';
+import type { StatsDashboardBootstrapResponse } from '../lib/api/types';
+import { dashboardQuery, statsRangeFromCookie } from '../lib/stats-page';
+import { STATS_RANGE_COOKIE_NAME } from '../lib/stores/stats-range';
+
+const rangeCookie = Astro.cookies.get(STATS_RANGE_COOKIE_NAME)?.value ?? null;
+const initialRange = statsRangeFromCookie(rangeCookie);
+const initialBootstrap = await serverApiFetch<StatsDashboardBootstrapResponse>(
+  Astro.request,
+  `/stats/dashboard/bootstrap?${dashboardQuery(initialRange)}`,
+);
 ---
 
 <AppLayout title="Stats · Spotrak">
-  <StatsDashboard client:load />
+  <StatsPage {initialBootstrap} {initialRange} />
 </AppLayout>

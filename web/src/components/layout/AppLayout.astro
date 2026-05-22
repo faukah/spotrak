@@ -5,10 +5,12 @@ import '../../styles/global.css';
 import AuthStatus from './AuthStatus.svelte';
 import AuthGate from '../auth/AuthGate.svelte';
 import SearchBox from '../search/SearchBox.svelte';
+import CurrentlyPlaying from './CurrentlyPlaying.svelte';
 import ThemeScript from './ThemeScript.astro';
 import StatsRangeScript from './StatsRangeScript.astro';
 import ThemeToggle from './ThemeToggle.svelte';
 import MobileMenu from './MobileMenu.svelte';
+import HeaderNavMotionScript from './HeaderNavMotionScript.astro';
 
 interface Props {
   title?: string;
@@ -49,23 +51,32 @@ const navItems = nav.map(([label, href]) => ({ label, href, active: isActive(hre
   </head>
   <body>
     <AuthGate client:load />
-    <header class="site-header">
-      <a class="brand" href="/" aria-label="Spotrak overview" data-astro-prefetch="hover">
-        <span class="brand-mark">ST</span>
-        <span>Spotrak</span>
-      </a>
-      <div class="desktop-search">
-        <SearchBox id="desktop-library-search" name="desktop-library-search" client:load />
-      </div>
+    <header class="site-header brandless-header">
       <nav class="shell-nav desktop-nav" aria-label="Main navigation">
-        {navItems.map((item) => <a href={item.href} aria-current={item.active ? 'page' : undefined} data-astro-prefetch="hover">{item.label}</a>)}
+        <span class="shell-nav-active-card" aria-hidden="true"></span>
+        {
+          navItems.map((item) => (
+            <a href={item.href} aria-current={item.active ? 'page' : undefined} data-astro-prefetch="hover">
+              <span class="shell-nav-label">{item.label}</span>
+            </a>
+          ))
+        }
       </nav>
-      <div class="site-controls desktop-controls">
-        <ThemeToggle client:load />
-        <AuthStatus client:load />
+      <div class="currently-playing-slot">
+        <CurrentlyPlaying endpoint="/player/currently-playing" showReconnect client:load />
       </div>
-      <MobileMenu navItems={navItems} includeSearch includeAuth menuId="site-mobile-menu" client:media="(max-width: 760px)" />
+      <div class="site-controls desktop-controls">
+        <div class="desktop-search">
+          <SearchBox id="desktop-library-search" name="desktop-library-search" client:idle />
+        </div>
+        <ThemeToggle client:idle />
+        <AuthStatus client:idle />
+      </div>
+      <div class="header-mobile-menu">
+        <MobileMenu navItems={navItems} includeSearch includeAuth menuId="site-mobile-menu" client:media="(max-width: 1180px)" />
+      </div>
     </header>
+    <HeaderNavMotionScript />
     <main class="page">
       <slot />
     </main>

@@ -340,6 +340,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/player/currently-playing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["currently_playing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/{token}/albums/{id}": {
         parameters: {
             query?: never;
@@ -420,6 +436,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/{token}/player/currently-playing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["currently_playing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/{token}/stats/album-release-years": {
         parameters: {
             query?: never;
@@ -444,6 +476,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["dashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/stats/dashboard/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["dashboard_bootstrap"];
         put?: never;
         post?: never;
         delete?: never;
@@ -540,6 +588,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["listening_over_time"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/{token}/stats/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["overview"];
         put?: never;
         post?: never;
         delete?: never;
@@ -716,6 +780,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["dashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stats/dashboard/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["dashboard_bootstrap"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1222,6 +1302,21 @@ export interface components {
             popularity?: number | null;
             uri?: string | null;
         };
+        ArtistRunSummary: {
+            artist_id: string;
+            artist_name: string;
+            /** Format: date-time */
+            end: string;
+            image_url?: string | null;
+            /** Format: int64 */
+            listening_duration_ms: number;
+            /** Format: int64 */
+            listens: number;
+            /** Format: int64 */
+            span_ms: number;
+            /** Format: date-time */
+            start: string;
+        };
         BucketedTopAlbum: {
             artist_name?: string | null;
             bucket: string;
@@ -1256,6 +1351,58 @@ export interface components {
             id: string;
             image_url?: string | null;
             name: string;
+        };
+        ComebackArtist: {
+            artist_id: string;
+            artist_name: string;
+            /** Format: int64 */
+            gap_ms: number;
+            image_url?: string | null;
+            /** Format: date-time */
+            previous_played_at: string;
+            /** Format: int64 */
+            range_listens: number;
+            /** Format: date-time */
+            returned_at: string;
+        };
+        CurrentlyPlayingResponse: {
+            /** Format: date-time */
+            fetched_at: string;
+            is_playing: boolean;
+            /** Format: int32 */
+            progress_ms?: number | null;
+            track?: null | components["schemas"]["CurrentlyPlayingTrack"];
+            unavailable_reason?: null | components["schemas"]["CurrentlyPlayingUnavailableReason"];
+        };
+        CurrentlyPlayingTrack: {
+            album_id?: string | null;
+            album_name: string;
+            artist_name?: string | null;
+            /** Format: int32 */
+            duration_ms: number;
+            id: string;
+            image_url?: string | null;
+            name: string;
+        };
+        /** @enum {string} */
+        CurrentlyPlayingUnavailableReason: "not_playing" | "reconnect_required" | "spotify_unavailable" | "unsupported_item";
+        DiscoveryStats: {
+            /** Format: double */
+            discovery_share: number;
+            /** Format: int64 */
+            new_artists: number;
+            /** Format: int64 */
+            new_tracks: number;
+            /** Format: int64 */
+            repeat_listens: number;
+            /** Format: double */
+            repeat_share: number;
+            /** Format: int64 */
+            total_listens: number;
+            /** Format: int64 */
+            unique_artists: number;
+            /** Format: int64 */
+            unique_tracks: number;
         };
         DiversityTimelinePoint: {
             /** Format: double */
@@ -1365,6 +1512,8 @@ export interface components {
             track_id: string;
             track_name: string;
         };
+        /** @enum {string} */
+        HourFormat: "12" | "24";
         HourRepartitionPoint: {
             /** Format: int64 */
             count: number;
@@ -1406,6 +1555,52 @@ export interface components {
         ImportJobsResponse: {
             imports: components["schemas"]["ImportJobResponse"][];
         };
+        ListeningConcentrationStats: {
+            /** Format: int64 */
+            artist_count: number;
+            /** Format: double */
+            effective_artist_count: number;
+            top_artist_id?: string | null;
+            top_artist_image_url?: string | null;
+            /** Format: int64 */
+            top_artist_listens: number;
+            top_artist_name?: string | null;
+            /** Format: double */
+            top_artist_share: number;
+            /** Format: double */
+            top_five_share: number;
+            /** Format: double */
+            top_ten_share: number;
+            /** Format: int64 */
+            total_listens: number;
+        };
+        ListeningSessionStats: {
+            /** Format: int64 */
+            average_duration_ms: number;
+            /** Format: double */
+            average_listens: number;
+            longest?: null | components["schemas"]["ListeningSessionSummary"];
+            most_intense?: null | components["schemas"]["ListeningSessionSummary"];
+            /** Format: int64 */
+            total_sessions: number;
+        };
+        ListeningSessionSummary: {
+            /** Format: int64 */
+            duration_ms: number;
+            /** Format: date-time */
+            end: string;
+            first_track_name: string;
+            image_url?: string | null;
+            last_track_name: string;
+            /** Format: int64 */
+            listens: number;
+            /** Format: double */
+            listens_per_hour: number;
+            /** Format: date-time */
+            start: string;
+            /** Format: int64 */
+            unique_artists: number;
+        };
         LongestSession: {
             /** Format: int64 */
             duration_ms: number;
@@ -1430,7 +1625,7 @@ export interface components {
             best_artist_stats?: null | components["schemas"]["EntityStats"];
             best_song?: null | components["schemas"]["TopTrack"];
             history: components["schemas"]["HistoryEvent"][];
-            hour_format: string;
+            hour_format: components["schemas"]["HourFormat"];
             hourly_distribution: components["schemas"]["HourRepartitionPoint"][];
             previous_summary?: null | components["schemas"]["SummaryStats"];
             range: components["schemas"]["StatsRangeResponse"];
@@ -1461,39 +1656,82 @@ export interface components {
             /** Format: int32 */
             year?: number | null;
         };
+        RepeatLoopStats: {
+            back_to_back_track_run?: null | components["schemas"]["RepeatLoopSummary"];
+            longest_artist_run?: null | components["schemas"]["ArtistRunSummary"];
+            top_track_loop?: null | components["schemas"]["RepeatLoopSummary"];
+            /** Format: int64 */
+            total_back_to_back_repeats: number;
+        };
+        RepeatLoopSummary: {
+            artist_name: string;
+            /** Format: date-time */
+            end: string;
+            image_url?: string | null;
+            /** Format: int64 */
+            listening_duration_ms: number;
+            /** Format: int64 */
+            listens: number;
+            /** Format: int64 */
+            span_ms: number;
+            /** Format: date-time */
+            start: string;
+            track_id: string;
+            track_name: string;
+        };
         SearchResults: {
             albums: components["schemas"]["EntityRef"][];
             artists: components["schemas"]["EntityRef"][];
             tracks: components["schemas"]["EntityRef"][];
         };
         SettingsPatch: {
-            dark_mode?: string | null;
+            dark_mode?: null | components["schemas"]["ThemePreference"];
             date_format?: string | null;
             history_line?: boolean | null;
-            hour_format?: string | null;
+            hour_format?: null | components["schemas"]["HourFormat"];
             metric_used?: string | null;
             /** Format: int32 */
             nb_elements?: number | null;
             preferred_stats_period?: string | null;
             timezone?: string | null;
         };
+        StatsBucketAxis: {
+            buckets: string[];
+            split: components["schemas"]["TimeSplit"];
+        };
+        StatsDashboardBootstrapResponse: {
+            available_years: number[];
+            bucket_axis: components["schemas"]["StatsBucketAxis"];
+            feature_average: components["schemas"]["FeatureAverageStats"];
+            hour_format: components["schemas"]["HourFormat"];
+            range?: null | components["schemas"]["StatsRangeResponse"];
+            release_years: components["schemas"]["AlbumReleaseYearsStats"];
+            summary: components["schemas"]["SummaryStats"];
+            timezone: string;
+        };
         StatsDashboardResponse: {
             artist_distribution: components["schemas"]["BucketedTopArtist"][];
             available_years: number[];
+            bucket_axis: components["schemas"]["StatsBucketAxis"];
+            comeback_artists: components["schemas"]["ComebackArtist"][];
+            concentration: components["schemas"]["ListeningConcentrationStats"];
+            discovery: components["schemas"]["DiscoveryStats"];
             diversity: components["schemas"]["DiversityTimelinePoint"][];
             feature_average: components["schemas"]["FeatureAverageStats"];
             feature_timeline: components["schemas"]["FeatureTimelinePoint"][];
-            hour_format: string;
+            hour_format: components["schemas"]["HourFormat"];
             hourly_artists: components["schemas"]["HourlyTopArtist"][];
             hours: components["schemas"]["HourRepartitionPoint"][];
+            range?: null | components["schemas"]["StatsRangeResponse"];
             release_years: components["schemas"]["AlbumReleaseYearsStats"];
+            repeat_loops: components["schemas"]["RepeatLoopStats"];
+            sessions: components["schemas"]["ListeningSessionStats"];
             summary: components["schemas"]["SummaryStats"];
             timeline: components["schemas"]["TimelinePoint"][];
             timezone: string;
-            top_artists: components["schemas"]["TopArtist"][];
         };
         StatsDisplayPreferences: {
-            hour_format: string;
+            hour_format: components["schemas"]["HourFormat"];
         };
         StatsInterval: {
             /** Format: date-time */
@@ -1528,6 +1766,8 @@ export interface components {
             /** Format: int64 */
             unique_tracks: number;
         };
+        /** @enum {string} */
+        ThemePreference: "follow" | "dark" | "light";
         /** @enum {string} */
         TimeSplit: "all" | "year" | "month" | "week" | "day" | "hour";
         TimelinePoint: {
@@ -1590,10 +1830,10 @@ export interface components {
             uri?: string | null;
         };
         UserSettings: {
-            dark_mode: string;
+            dark_mode: components["schemas"]["ThemePreference"];
             date_format: string;
             history_line: boolean;
-            hour_format: string;
+            hour_format: components["schemas"]["HourFormat"];
             metric_used: string;
             /** Format: int32 */
             nb_elements: number;
@@ -2181,6 +2421,26 @@ export interface operations {
             };
         };
     };
+    currently_playing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Currently playing Spotify track */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentlyPlayingResponse"];
+                };
+            };
+        };
+    };
     album: {
         parameters: {
             query?: never;
@@ -2325,6 +2585,28 @@ export interface operations {
             };
         };
     };
+    currently_playing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public currently playing Spotify track */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentlyPlayingResponse"];
+                };
+            };
+        };
+    };
     album_release_years: {
         parameters: {
             query?: {
@@ -2385,6 +2667,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatsDashboardResponse"];
+                };
+            };
+        };
+    };
+    dashboard_bootstrap: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public stats dashboard bootstrap data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsDashboardBootstrapResponse"];
                 };
             };
         };
@@ -2567,6 +2881,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TimelinePoint"][];
+                };
+            };
+        };
+    };
+    overview: {
+        parameters: {
+            query?: {
+                range?: components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+            };
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public overview dashboard data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverviewStatsResponse"];
                 };
             };
         };
@@ -2897,6 +3236,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatsDashboardResponse"];
+                };
+            };
+        };
+    };
+    dashboard_bootstrap: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                range?: null | components["schemas"]["StatsRangeKey"];
+                year?: number | null;
+                split?: components["schemas"]["TimeSplit"];
+                metric?: components["schemas"]["Metric"];
+                group_other?: boolean | null;
+                limit?: number | null;
+                offset?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stats dashboard bootstrap data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsDashboardBootstrapResponse"];
                 };
             };
         };

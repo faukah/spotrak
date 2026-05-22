@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { BarChart } from 'layerchart';
   import type { HourRepartitionPoint } from '../../lib/api/types';
   import { chartColor, formatCountValue, formatDurationValue } from '../../lib/charts/theme';
@@ -15,17 +14,13 @@
   export let points: HourRepartitionPoint[] = [];
   export let hourFormat: '12' | '24' = '24';
   export let className = '';
+  export let controls = true;
 
   let visibleMetrics: Record<MetricKey, boolean> = {
     listens: true,
     time: true,
   };
-  let mounted = false;
   let chartWidth = 720;
-
-  onMount(() => {
-    mounted = true;
-  });
 
   $: hourData = Array.from({ length: 24 }, (_, hour) => {
     const point = points.find((item) => item.hour === hour);
@@ -38,6 +33,7 @@
   });
   $: visibleRows = metricRows.filter((row) => visibleMetrics[row.key]);
   $: chartHeight = visibleRows.length === 1 ? '18rem' : 'clamp(9.5rem, 22vw, 10.5rem)';
+  $: rowHeight = visibleRows.length === 1 ? '18rem' : 'clamp(9.5rem, 22vw, 10.5rem)';
   $: hourTickStride = bandTickStride(24, chartWidth, {
     minTickSpacing: hourFormat === '12' ? 34 : 29,
     maxTicks: 24,
@@ -111,31 +107,40 @@
       <Card.Description>{hourFormat === '24' ? '24-hour local time' : '12-hour local time'}</Card.Description>
       <Card.Title>Listening distribution over day</Card.Title>
     </div>
-    <div class="metric-toggles" aria-label="Visible day distribution metrics">
-      {#each metricRows as metric (metric.key)}
-        <Button
-          variant={visibleMetrics[metric.key] ? 'secondary' : 'outline'}
-          size="xs"
-          class="metric-toggle"
-          aria-pressed={visibleMetrics[metric.key]}
-          disabled={visibleMetrics[metric.key] && visibleRows.length === 1}
-          onclick={() => toggleMetric(metric.key)}
-        >
-          <span aria-hidden="true">{visibleMetrics[metric.key] ? '✓' : ''}</span>
-          {metric.label}
-        </Button>
-      {/each}
-    </div>
+    {#if controls}
+      <div class="metric-control-group">
+        <span>Chart rows</span>
+        <div class="metric-toggles" aria-label="Visible day distribution rows">
+          {#each metricRows as metric (metric.key)}
+            <Button
+              variant={visibleMetrics[metric.key] ? 'secondary' : 'outline'}
+              size="xs"
+              class="metric-toggle"
+              aria-pressed={visibleMetrics[metric.key]}
+              aria-label={`Toggle ${metric.label} row`}
+              disabled={visibleMetrics[metric.key] && visibleRows.length === 1}
+              onclick={() => toggleMetric(metric.key)}
+            >
+              {metric.label}
+            </Button>
+          {/each}
+        </div>
+      </div>
+    {/if}
   </Card.Header>
   <Card.Content>
     {#if !hasData}
       <p class="state">No hourly listening data for this range.</p>
-    {:else if !mounted}
-      <div class="skeleton day-chart-loading" aria-hidden="true"></div>
     {:else}
       <div class="day-chart-stack" class:single-row={visibleRows.length === 1} bind:clientWidth={chartWidth}>
-        {#each visibleRows as metric (metric.key)}
-          <section class="day-chart-row" aria-label={`${metric.label} by local hour`}>
+        {#each metricRows as metric (metric.key)}
+          <section
+            class="day-chart-row"
+            class:inactive={controls && !visibleMetrics[metric.key]}
+            style={`--row-height: ${rowHeight};`}
+            aria-label={`${metric.label} by local hour`}
+            aria-hidden={controls && !visibleMetrics[metric.key]}
+          >
             <div class="row-heading">
               <span class="row-swatch" style:background={metric.color}></span>
               <strong>{metric.label}</strong>
@@ -207,6 +212,20 @@
     gap: 1rem;
   }
 
+  .metric-control-group {
+    display: grid;
+    gap: 0.3rem;
+    justify-items: end;
+  }
+
+  .metric-control-group > span {
+    color: var(--color-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
   .metric-toggles {
     display: flex;
     flex-wrap: wrap;
@@ -218,18 +237,6 @@
     min-width: 0;
   }
 
-  :global(.metric-toggle span) {
-    display: inline-block;
-    width: 0.65rem;
-    color: var(--color-primary);
-    text-align: center;
-  }
-
-  .day-chart-loading {
-    min-height: 20rem;
-    border-radius: var(--radius-lg);
-  }
-
   .day-chart-stack {
     display: grid;
     gap: 0.75rem;
@@ -239,6 +246,18 @@
     display: grid;
     gap: 0.35rem;
     min-width: 0;
+    max-height: calc(var(--row-height) + 1.4rem);
+    overflow: hidden;
+    opacity: 1;
+    transition:
+      max-height 140ms var(--ease-out-quart),
+      opacity 120ms var(--ease-out-quart);
+  }
+
+  .day-chart-row.inactive {
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
   }
 
   .row-heading {
@@ -305,6 +324,10 @@
     :global(.day-distribution-card [data-slot='card-header']) {
       align-items: stretch;
       flex-direction: column;
+    }
+
+    .metric-control-group {
+      justify-items: start;
     }
 
     .metric-toggles {

@@ -3,8 +3,10 @@ import { ClientRouter } from 'astro:transitions';
 import PublicShareGuard from '../public/PublicShareGuard.svelte';
 import ThemeScript from './ThemeScript.astro';
 import StatsRangeScript from './StatsRangeScript.astro';
+import CurrentlyPlaying from './CurrentlyPlaying.svelte';
 import ThemeToggle from './ThemeToggle.svelte';
 import MobileMenu from './MobileMenu.svelte';
+import HeaderNavMotionScript from './HeaderNavMotionScript.astro';
 // oxlint-disable-next-line import/no-unassigned-import -- Astro CSS entrypoint side-effect import.
 import '../../styles/global.css';
 
@@ -54,13 +56,26 @@ const navItems = nav.map(([label, href]) => ({ label, href, active: isActive(hre
         <span>Shared stats</span>
       </a>
       <nav class="shell-nav desktop-nav" aria-label="Public navigation">
-        {navItems.map((item) => <a href={item.href} aria-current={item.active ? 'page' : undefined} data-astro-prefetch="hover">{item.label}</a>)}
+        <span class="shell-nav-active-card" aria-hidden="true"></span>
+        {
+          navItems.map((item) => (
+            <a href={item.href} aria-current={item.active ? 'page' : undefined} data-astro-prefetch="hover">
+              <span class="shell-nav-label">{item.label}</span>
+            </a>
+          ))
+        }
       </nav>
+      <div class="currently-playing-slot">
+        <CurrentlyPlaying endpoint={`${base}/player/currently-playing`} client:load />
+      </div>
       <div class="site-controls desktop-controls">
         <ThemeToggle client:load />
       </div>
-      <MobileMenu navItems={navItems} menuId="public-mobile-menu" client:media="(max-width: 760px)" />
+      <div class="header-mobile-menu">
+        <MobileMenu navItems={navItems} menuId="public-mobile-menu" client:media="(max-width: 1500px)" />
+      </div>
     </header>
+    <HeaderNavMotionScript />
     <main class="page">
       <slot />
     </main>

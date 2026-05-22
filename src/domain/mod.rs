@@ -1,6 +1,7 @@
 pub mod catalog;
 pub mod ids;
 pub mod import;
+pub mod player;
 pub mod settings;
 pub mod spotify;
 pub mod stats;

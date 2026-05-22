@@ -1,13 +1,8 @@
 ---
 import AppLayout from '../../components/layout/AppLayout.astro';
-import TopList from '../../components/cards/TopList.svelte';
+import TopListPage from '../../components/pages/TopListPage.astro';
 ---
 
 <AppLayout title="Top artists · Spotrak">
-  <section class="page-stack">
-    <div class="page-title">
-      <h1>Top artists</h1>
-    </div>
-    <TopList kind="artists" limit={50} client:visible />
-  </section>
+  <TopListPage kind="artists" />
 </AppLayout>

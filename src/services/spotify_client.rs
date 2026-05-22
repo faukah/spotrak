@@ -25,8 +25,13 @@ const MAX_SPOTIFY_RETRIES: u32 = 3;
 const SPOTIFY_RATE_LIMIT_ADVISORY_LOCK: i64 = 7_764_786_970_019;
 const SPOTIFY_LAST_REQUEST_KEY: &str = "spotify_last_request_at";
 const SPOTIFY_BLOCKED_UNTIL_KEY: &str = "spotify_blocked_until";
-const SPOTIFY_AUTH_SCOPES: &str = "user-read-private user-read-recently-played";
-const REQUIRED_SPOTIFY_SCOPES: &[&str] = &["user-read-private", "user-read-recently-played"];
+const SPOTIFY_AUTH_SCOPES: &str =
+    "user-read-private user-read-recently-played user-read-currently-playing";
+const REQUIRED_SPOTIFY_SCOPES: &[&str] = &[
+    "user-read-private",
+    "user-read-recently-played",
+    "user-read-currently-playing",
+];
 
 pub fn authorize_url(config: &Config, state: &str, code_challenge: &str) -> Result<Url> {
     let mut url = Url::parse(&format!("{SPOTIFY_ACCOUNTS}/authorize"))
@@ -69,7 +74,8 @@ pub async fn exchange_code(
 }
 
 pub async fn refresh_token(state: &AppState, refresh_token: &str) -> Result<StoredSpotifyTokens> {
-    wait_for_spotify_slot(state).await?;
+    // Token refresh gates live recently-played polling. Keep it outside the
+    // shared Web API limiter/cooldown so catalog/import 429s do not stall it.
     state.metrics.inc_spotify_requests();
     let response = state
         .http
@@ -84,7 +90,7 @@ pub async fn refresh_token(state: &AppState, refresh_token: &str) -> Result<Stor
         ])
         .send()
         .await?;
-    parse_token_response_with_global_cooldown(state, response, false).await
+    parse_token_response(response, false).await
 }
 
 pub async fn me(state: &AppState, access_token: &str) -> Result<SpotifyProfile> {
@@ -143,6 +149,16 @@ pub async fn recently_played_after(
     }
 
     Ok(items)
+}
+
+pub async fn currently_playing(
+    state: &AppState,
+    access_token: &str,
+) -> Result<Option<crate::domain::spotify::SpotifyCurrentlyPlayingResponse>> {
+    let mut url = Url::parse(&format!("{SPOTIFY_API}/v1/me/player/currently-playing"))
+        .map_err(|err| AppError::internal(err.to_string()))?;
+    append_market(state, &mut url);
+    spotify_get_json_without_limiter(state, url.as_str(), access_token).await
 }
 
 pub async fn get_track(state: &AppState, access_token: &str, id: &str) -> Result<SpotifyTrack> {
@@ -456,21 +472,6 @@ async fn record_spotify_global_cooldown(state: &AppState, sleep_seconds: u64) ->
         "recorded global Spotify Retry-After cooldown"
     );
     Ok(())
-}
-
-async fn parse_token_response_with_global_cooldown(
-    state: &AppState,
-    response: reqwest::Response,
-    validate_scopes: bool,
-) -> Result<StoredSpotifyTokens> {
-    if response.status() == StatusCode::TOO_MANY_REQUESTS {
-        let retry_after = retry_after_seconds(response.headers());
-        let sleep_seconds = retry_after
-            .filter(|seconds| *seconds > 0)
-            .unwrap_or_else(|| spotify_backoff_seconds(1));
-        record_spotify_global_cooldown(state, sleep_seconds).await?;
-    }
-    parse_token_response(response, validate_scopes).await
 }
 
 async fn parse_token_response(

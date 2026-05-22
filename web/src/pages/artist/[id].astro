@@ -1,6 +1,6 @@
 ---
-import CatalogDetail from '../../components/cards/CatalogDetail.svelte';
 import AppLayout from '../../components/layout/AppLayout.astro';
+import CatalogDetailPage from '../../components/pages/CatalogDetailPage.astro';
 import { serverApiFetch } from '../../lib/api/server';
 import type { ArtistDetail } from '../../lib/api/types';
 const { id = '' } = Astro.params;
@@ -9,5 +9,5 @@ const initialDetail = await serverApiFetch<ArtistDetail>(Astro.request, `/artist
 ---
 
 <AppLayout title="Artist · Spotrak">
-  <CatalogDetail kind="artist" id={id} initialDetail={initialDetail} transitionName={transitionName} client:visible />
+  <CatalogDetailPage kind="artist" {id} {initialDetail} {transitionName} />
 </AppLayout>

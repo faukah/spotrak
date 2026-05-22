@@ -33,7 +33,7 @@
       if (event.key === 'Escape') close();
     };
 
-    const desktopQuery = window.matchMedia('(min-width: 761px)');
+    const desktopQuery = window.matchMedia('(min-width: 1501px)');
     const onMediaChange = () => {
       if (desktopQuery.matches) close();
     };
@@ -97,31 +97,15 @@
     display: none;
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: 1500px) {
     :global(body.mobile-menu-open) {
       overflow: hidden;
     }
 
-    :global(.site-header),
-    :global(.site-header.public-header) {
-      --mobile-header-height: 3.85rem;
-      grid-template-columns: minmax(0, 1fr) auto;
-      min-height: var(--mobile-header-height);
-      gap: 0.55rem;
-    }
-
-    :global(.desktop-search),
-    :global(.desktop-nav),
-    :global(.desktop-controls) {
-      display: none !important;
-    }
-
-    :global(.brand) {
-      min-width: 0;
-    }
-
     .mobile-menu {
       display: block;
+      grid-column: 2;
+      grid-row: 1;
       justify-self: end;
     }
 

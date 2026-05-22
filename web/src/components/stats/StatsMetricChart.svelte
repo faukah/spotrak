@@ -1,6 +1,5 @@
 <script lang="ts">
   import { BarChart, LineChart } from 'layerchart';
-  import { curveMonotoneX } from 'd3-shape';
   import { bandTickStride } from '../../lib/charts/ticks';
   import * as Card from '../ui/card';
   import * as Chart from '../ui/chart';
@@ -121,7 +120,7 @@
               props={{
                 xAxis: { ticks: xTickStride },
                 yAxis: { format: axisFormatter, ticks: 4 },
-                spline: { curve: curveMonotoneX, strokeWidth: 2.2 },
+                spline: { strokeWidth: 2.2 },
                 points: { r: 3 },
                 tooltip: { context: { mode: 'quadtree-x' } },
               }}
