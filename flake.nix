@@ -1,23 +1,39 @@
 {
+  description = "self-hostable music tracking dashboard for Spotify";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
   outputs =
-    {
-      nixpkgs,
-      ...
-    }:
+    { self, nixpkgs }:
     let
       inherit (nixpkgs) lib;
-      forEachSystem = lib.genAttrs [
+      linuxSystems = [
         "x86_64-linux"
         "aarch64-linux"
       ];
-      pkgsForEach = nixpkgs.legacyPackages;
+      darwinSystems = [
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      allSystems = linuxSystems ++ darwinSystems;
+      forAllSystems =
+        systems: f:
+        lib.genAttrs systems (
+          system: f (nixpkgs.legacyPackages.${system} or (import nixpkgs { inherit system; }))
+        );
     in
     {
-      devShells = forEachSystem (system: {
-        default = pkgsForEach.${system}.callPackage ./shell.nix { };
+      packages = forAllSystems linuxSystems (pkgs: rec {
+        spotrak = pkgs.callPackage ./nix/package.nix { };
+        spotrak-web = pkgs.callPackage ./nix/web.nix { };
+        default = spotrak;
       });
+
+      devShells = forAllSystems allSystems (pkgs: {
+        default = pkgs.callPackage ./shell.nix { };
+      });
+
+      nixosModules.default = import ./nix/nixos.nix;
+      darwinModules.default = import ./nix/darwin.nix;
     };
 }
