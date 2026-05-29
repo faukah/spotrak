@@ -1,4 +1,4 @@
-import { defineConfig } from "astro/config";
+import { defineConfig, passthroughImageService } from "astro/config";
 import deno from "@deno/astro-adapter";
 import svelte from "@astrojs/svelte";
 import tailwindcss from "@tailwindcss/vite";
@@ -13,6 +13,7 @@ export default defineConfig({
   },
   output: "server",
   adapter: deno({ start: false, hostname: "0.0.0.0", port: 4322 }),
+  image: { service: passthroughImageService() },
   vite: {
     plugins: [tailwindcss()],
     server: {
@@ -21,7 +22,7 @@ export default defineConfig({
       },
     },
     ssr: {
-      noExternal: ["@lucide/svelte"],
+      noExternal: ["@lucide/svelte", "svelte", "@astrojs/svelte"],
     },
   },
 });

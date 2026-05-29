@@ -55,5 +55,5 @@
       "web/src/lib/api/generated.d.ts"
     ]
   },
-  "allowScripts": ["npm:sharp@0.34.5"]
+  "allowScripts": []
 }
