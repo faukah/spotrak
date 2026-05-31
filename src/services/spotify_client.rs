@@ -359,18 +359,19 @@ async fn wait_for_spotify_slot(state: &AppState) -> Result<()> {
     // instances or a restarted worker overlap. Long Spotify cooldown sleeps happen
     // outside the transaction, then the advisory lock is reacquired before reserving.
     loop {
-        let mut tx = state.db.begin().await?;
-        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        let mut client = state.db.get().await?;
+        let tx = client.transaction().await?;
+        crate::db::query("SELECT pg_advisory_xact_lock($1)")
             .bind(SPOTIFY_RATE_LIMIT_ADVISORY_LOCK)
-            .execute(&mut *tx)
+            .execute(&tx)
             .await?;
 
         let now_global = Utc::now();
-        let blocked_until = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
+        let blocked_until = crate::db::query_scalar::<Option<DateTime<Utc>>>(
             "SELECT value_ts FROM app_runtime_state WHERE key = $1 FOR UPDATE",
         )
         .bind(SPOTIFY_BLOCKED_UNTIL_KEY)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&tx)
         .await?
         .flatten();
 
@@ -390,11 +391,11 @@ async fn wait_for_spotify_slot(state: &AppState) -> Result<()> {
             continue;
         }
 
-        let last_global = sqlx::query_scalar::<_, Option<DateTime<Utc>>>(
+        let last_global = crate::db::query_scalar::<Option<DateTime<Utc>>>(
             "SELECT value_ts FROM app_runtime_state WHERE key = $1 FOR UPDATE",
         )
         .bind(SPOTIFY_LAST_REQUEST_KEY)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&tx)
         .await?
         .flatten();
 
@@ -418,7 +419,7 @@ async fn wait_for_spotify_slot(state: &AppState) -> Result<()> {
         }
 
         let reserved_at = Utc::now();
-        sqlx::query(
+        crate::db::query(
             r#"
             INSERT INTO app_runtime_state (key, value_ts, updated_at)
             VALUES ($1, $2, now())
@@ -427,7 +428,7 @@ async fn wait_for_spotify_slot(state: &AppState) -> Result<()> {
         )
         .bind(SPOTIFY_LAST_REQUEST_KEY)
         .bind(reserved_at)
-        .execute(&mut *tx)
+        .execute(&tx)
         .await?;
         tx.commit().await?;
         break;
@@ -443,12 +444,13 @@ async fn record_spotify_global_cooldown(state: &AppState, sleep_seconds: u64) ->
         .map_err(|err| AppError::internal(err.to_string()))?;
     let blocked_until = Utc::now() + cooldown;
 
-    let mut tx = state.db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+    let mut client = state.db.get().await?;
+    let tx = client.transaction().await?;
+    crate::db::query("SELECT pg_advisory_xact_lock($1)")
         .bind(SPOTIFY_RATE_LIMIT_ADVISORY_LOCK)
-        .execute(&mut *tx)
+        .execute(&tx)
         .await?;
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO app_runtime_state (key, value_ts, updated_at)
         VALUES ($1, $2, now())
@@ -462,7 +464,7 @@ async fn record_spotify_global_cooldown(state: &AppState, sleep_seconds: u64) ->
     )
     .bind(SPOTIFY_BLOCKED_UNTIL_KEY)
     .bind(blocked_until)
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
     tx.commit().await?;
 

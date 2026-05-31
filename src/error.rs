@@ -34,7 +34,9 @@ pub enum AppError {
         body: String,
     },
     #[error("database error")]
-    Database(#[from] sqlx::Error),
+    Database(#[from] tokio_postgres::Error),
+    #[error("database pool error")]
+    DatabasePool(#[from] deadpool_postgres::PoolError),
     #[error("internal error: {0}")]
     Internal(String),
     #[allow(dead_code)]
@@ -79,7 +81,7 @@ impl AppError {
             AppError::Validation { .. } => StatusCode::BAD_REQUEST,
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Spotify(_) | AppError::SpotifyApi { .. } => StatusCode::BAD_GATEWAY,
-            AppError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::Database(_) | AppError::DatabasePool(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
         }
@@ -93,7 +95,7 @@ impl AppError {
             AppError::Validation { .. } => "VALIDATION_ERROR",
             AppError::Conflict(_) => "CONFLICT",
             AppError::Spotify(_) | AppError::SpotifyApi { .. } => "SPOTIFY_ERROR",
-            AppError::Database(_) => "DATABASE_ERROR",
+            AppError::Database(_) | AppError::DatabasePool(_) => "DATABASE_ERROR",
             AppError::Internal(_) => "INTERNAL_ERROR",
             AppError::NotImplemented(_) => "NOT_IMPLEMENTED",
         }
@@ -101,7 +103,7 @@ impl AppError {
 
     fn public_message(&self) -> String {
         match self {
-            AppError::Database(_) => "Database error".to_owned(),
+            AppError::Database(_) | AppError::DatabasePool(_) => "Database error".to_owned(),
             AppError::Internal(_) => "Internal error".to_owned(),
             AppError::Unauthorized => "Authentication required".to_owned(),
             AppError::Forbidden => "Permission denied".to_owned(),
@@ -123,6 +125,7 @@ impl IntoResponse for AppError {
         if matches!(
             self,
             AppError::Database(_)
+                | AppError::DatabasePool(_)
                 | AppError::Internal(_)
                 | AppError::Spotify(_)
                 | AppError::SpotifyApi { .. }

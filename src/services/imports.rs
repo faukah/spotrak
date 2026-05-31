@@ -25,8 +25,14 @@ struct ImportCandidate {
 }
 
 enum TrackResolution {
-    Resolved(Option<SpotifyTrack>),
+    Resolved(Option<Box<SpotifyTrack>>),
     NeedsSpotify,
+}
+
+impl TrackResolution {
+    fn resolved(track: Option<SpotifyTrack>) -> Self {
+        Self::Resolved(track.map(Box::new))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,7 +148,7 @@ pub async fn process_job(state: &AppState, job: ImportJob) -> Result<()> {
             match resolve_cached_track(state, candidate, &mut cache).await? {
                 TrackResolution::Resolved(Some(track)) => {
                     pending.push(SpotifyRecentlyPlayedItem {
-                        track,
+                        track: *track,
                         played_at: candidate.played_at,
                     });
                     current += 1;
@@ -323,17 +329,12 @@ async fn insert_items(
         return Ok(());
     }
     let artist_ids = ingestion::artist_ids_from_recently_played(pending);
-    let mut tx = state.db.begin().await?;
+    let mut client = state.db.get().await?;
+    let tx = client.transaction().await?;
     let mut inserted = 0;
     for item in pending.drain(..) {
-        if catalog::upsert_recently_played_event(
-            &mut tx,
-            user_id,
-            &item,
-            source,
-            Some(import_job_id),
-        )
-        .await?
+        if catalog::upsert_recently_played_event(&tx, user_id, &item, source, Some(import_job_id))
+            .await?
         {
             inserted += 1;
         }
@@ -430,7 +431,7 @@ async fn resolve_cached_track(
     if let Some(track_id) = &candidate.track_id {
         let key = format!("id:{track_id}");
         if let Some(cached) = cache.get(&key) {
-            return Ok(TrackResolution::Resolved(cached.clone()));
+            return Ok(TrackResolution::resolved(cached.clone()));
         }
         if let Some(track) = catalog::spotify_track_from_cache(&state.db, track_id).await? {
             tracing::debug!(
@@ -438,7 +439,7 @@ async fn resolve_cached_track(
                 "using cached Spotify track metadata from database"
             );
             cache.insert(key, Some(track.clone()));
-            return Ok(TrackResolution::Resolved(Some(track)));
+            return Ok(TrackResolution::resolved(Some(track)));
         }
         return Ok(TrackResolution::NeedsSpotify);
     }
@@ -446,7 +447,7 @@ async fn resolve_cached_track(
     if let Some(query) = &candidate.query {
         let key = format!("q:{query}");
         if let Some(cached) = cache.get(&key) {
-            return Ok(TrackResolution::Resolved(cached.clone()));
+            return Ok(TrackResolution::resolved(cached.clone()));
         }
         if let (Some(track_name), Some(artist_name)) =
             (&candidate.track_name, &candidate.artist_name)
@@ -460,7 +461,7 @@ async fn resolve_cached_track(
                 "using cached Spotify search result from database"
             );
             cache.insert(key, Some(track.clone()));
-            return Ok(TrackResolution::Resolved(Some(track)));
+            return Ok(TrackResolution::resolved(Some(track)));
         }
         let query_key = normalize_query_key(query);
         if let Some(hit) = catalog::spotify_search_cache(&state.db, &query_key).await? {
@@ -469,12 +470,12 @@ async fn resolve_cached_track(
                     let track = (*track).clone();
                     tracing::debug!(query, "using cached Spotify search result");
                     cache.insert(key, Some(track.clone()));
-                    return Ok(TrackResolution::Resolved(Some(track)));
+                    return Ok(TrackResolution::resolved(Some(track)));
                 }
                 catalog::SpotifySearchCacheHit::NotFound => {
                     tracing::debug!(query, "using cached negative Spotify search result");
                     cache.insert(key, None);
-                    return Ok(TrackResolution::Resolved(None));
+                    return Ok(TrackResolution::resolved(None));
                 }
             }
         }
@@ -492,7 +493,7 @@ async fn resolve_track(
     cache: &mut HashMap<String, Option<SpotifyTrack>>,
 ) -> Result<Option<SpotifyTrack>> {
     match resolve_cached_track(state, candidate, cache).await? {
-        TrackResolution::Resolved(track) => return Ok(track),
+        TrackResolution::Resolved(track) => return Ok(track.map(|track| *track)),
         TrackResolution::NeedsSpotify => {}
     }
 

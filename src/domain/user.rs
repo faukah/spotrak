@@ -1,10 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct User {
     pub id: Uuid,
     pub username: String,
@@ -24,7 +23,7 @@ pub struct User {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PublicUser {
     pub id: Uuid,
     pub username: String,
@@ -51,3 +50,25 @@ pub struct NewUser {
     pub spotify_id: String,
     pub admin: bool,
 }
+
+crate::impl_from_pg_row!(User {
+    id,
+    username,
+    spotify_id,
+    admin,
+    access_token,
+    refresh_token,
+    token_expires_at,
+    last_spotify_poll_at,
+    first_listened_at,
+    created_at,
+    updated_at,
+});
+
+crate::impl_from_pg_row!(PublicUser {
+    id,
+    username,
+    spotify_id,
+    admin,
+    created_at,
+});

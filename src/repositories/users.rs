@@ -1,5 +1,5 @@
+use crate::db::{PgPool, Transaction};
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -7,16 +7,16 @@ use crate::{
     error::Result,
 };
 
-pub async fn count_tx(tx: &mut Transaction<'_, Postgres>) -> Result<i64> {
-    let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users")
-        .fetch_one(&mut **tx)
+pub async fn count_tx(tx: &Transaction<'_>) -> Result<i64> {
+    let count = crate::db::query_scalar::<i64>("SELECT COUNT(*) FROM users")
+        .fetch_one(tx)
         .await?;
     Ok(count)
 }
 
 #[allow(dead_code)]
 pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>> {
-    let user = sqlx::query_as::<_, User>(
+    let user = crate::db::query_as::<User>(
         r#"
         SELECT id, username, spotify_id, admin, access_token, refresh_token, token_expires_at,
                last_spotify_poll_at, first_listened_at, created_at, updated_at
@@ -30,11 +30,8 @@ pub async fn find_by_id(pool: &PgPool, id: Uuid) -> Result<Option<User>> {
     Ok(user)
 }
 
-pub async fn find_by_spotify_id_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    spotify_id: &str,
-) -> Result<Option<User>> {
-    let user = sqlx::query_as::<_, User>(
+pub async fn find_by_spotify_id_tx(tx: &Transaction<'_>, spotify_id: &str) -> Result<Option<User>> {
+    let user = crate::db::query_as::<User>(
         r#"
         SELECT id, username, spotify_id, admin, access_token, refresh_token, token_expires_at,
                last_spotify_poll_at, first_listened_at, created_at, updated_at
@@ -43,13 +40,13 @@ pub async fn find_by_spotify_id_tx(
         "#,
     )
     .bind(spotify_id)
-    .fetch_optional(&mut **tx)
+    .fetch_optional(tx)
     .await?;
     Ok(user)
 }
 
-pub async fn upsert_login(tx: &mut Transaction<'_, Postgres>, new_user: &NewUser) -> Result<User> {
-    let user = sqlx::query_as::<_, User>(
+pub async fn upsert_login(tx: &Transaction<'_>, new_user: &NewUser) -> Result<User> {
+    let user = crate::db::query_as::<User>(
         r#"
         INSERT INTO users (username, spotify_id, admin)
         VALUES ($1, $2, $3)
@@ -63,7 +60,7 @@ pub async fn upsert_login(tx: &mut Transaction<'_, Postgres>, new_user: &NewUser
     .bind(&new_user.username)
     .bind(&new_user.spotify_id)
     .bind(new_user.admin)
-    .fetch_one(&mut **tx)
+    .fetch_one(tx)
     .await?;
     Ok(user)
 }
@@ -76,7 +73,7 @@ pub async fn update_tokens(
     refresh_token: Option<&str>,
     token_expires_at: DateTime<Utc>,
 ) -> Result<User> {
-    let user = sqlx::query_as::<_, User>(
+    let user = crate::db::query_as::<User>(
         r#"
         UPDATE users
         SET access_token = $2,
@@ -98,13 +95,13 @@ pub async fn update_tokens(
 }
 
 pub async fn update_tokens_tx(
-    tx: &mut Transaction<'_, Postgres>,
+    tx: &Transaction<'_>,
     user_id: Uuid,
     access_token: &str,
     refresh_token: Option<&str>,
     token_expires_at: DateTime<Utc>,
 ) -> Result<User> {
-    let user = sqlx::query_as::<_, User>(
+    let user = crate::db::query_as::<User>(
         r#"
         UPDATE users
         SET access_token = $2,
@@ -120,7 +117,7 @@ pub async fn update_tokens_tx(
     .bind(access_token)
     .bind(refresh_token)
     .bind(token_expires_at)
-    .fetch_one(&mut **tx)
+    .fetch_one(tx)
     .await?;
     Ok(user)
 }
@@ -133,7 +130,7 @@ pub async fn update_tokens_if_refresh_token_matches(
     token_expires_at: DateTime<Utc>,
     expected_refresh_token: Option<&str>,
 ) -> Result<Option<User>> {
-    let user = sqlx::query_as::<_, User>(
+    let user = crate::db::query_as::<User>(
         r#"
         UPDATE users
         SET access_token = $2,
@@ -157,7 +154,7 @@ pub async fn update_tokens_if_refresh_token_matches(
 }
 
 pub async fn clear_spotify_tokens(pool: &PgPool, user_id: Uuid) -> Result<bool> {
-    let result = sqlx::query(
+    let result = crate::db::query(
         r#"
         UPDATE users
         SET access_token = NULL,
@@ -175,7 +172,7 @@ pub async fn clear_spotify_tokens(pool: &PgPool, user_id: Uuid) -> Result<bool> 
 }
 
 pub async fn update_profile(pool: &PgPool, user_id: Uuid, username: Option<&str>) -> Result<User> {
-    let user = sqlx::query_as::<_, User>(
+    let user = crate::db::query_as::<User>(
         r#"
         UPDATE users
         SET username = COALESCE($2, username), updated_at = now()
@@ -192,7 +189,7 @@ pub async fn update_profile(pool: &PgPool, user_id: Uuid, username: Option<&str>
 }
 
 pub async fn list(pool: &PgPool, limit: i64, offset: i64) -> Result<Vec<PublicUser>> {
-    let users = sqlx::query_as::<_, PublicUser>(
+    let users = crate::db::query_as::<PublicUser>(
         r#"
         SELECT id, username, spotify_id, admin, created_at
         FROM users
@@ -208,7 +205,7 @@ pub async fn list(pool: &PgPool, limit: i64, offset: i64) -> Result<Vec<PublicUs
 }
 
 pub async fn set_admin(pool: &PgPool, user_id: Uuid, admin: bool) -> Result<User> {
-    let user = sqlx::query_as::<_, User>(
+    let user = crate::db::query_as::<User>(
         r#"
         UPDATE users
         SET admin = $2, updated_at = now()
@@ -225,7 +222,7 @@ pub async fn set_admin(pool: &PgPool, user_id: Uuid, admin: bool) -> Result<User
 }
 
 pub async fn delete(pool: &PgPool, user_id: Uuid) -> Result<bool> {
-    let result = sqlx::query("DELETE FROM users WHERE id = $1")
+    let result = crate::db::query("DELETE FROM users WHERE id = $1")
         .bind(user_id)
         .execute(pool)
         .await?;
@@ -233,7 +230,7 @@ pub async fn delete(pool: &PgPool, user_id: Uuid) -> Result<bool> {
 }
 
 pub async fn list_pollable(pool: &PgPool) -> Result<Vec<User>> {
-    let users = sqlx::query_as::<_, User>(
+    let users = crate::db::query_as::<User>(
         r#"
         SELECT id, username, spotify_id, admin, access_token, refresh_token, token_expires_at,
                last_spotify_poll_at, first_listened_at, created_at, updated_at
@@ -253,7 +250,7 @@ pub async fn update_poll_markers(
     last_poll_at: DateTime<Utc>,
     first_seen_at: Option<DateTime<Utc>>,
 ) -> Result<()> {
-    sqlx::query(
+    crate::db::query(
         r#"
         UPDATE users
         SET last_spotify_poll_at = $2,

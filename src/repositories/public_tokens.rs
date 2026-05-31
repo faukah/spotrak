@@ -1,5 +1,5 @@
+use crate::db::PgPool;
 use chrono::{Duration, Utc};
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{error::Result, repositories::sessions};
@@ -17,8 +17,9 @@ pub fn hash_token(token: &str) -> String {
 pub async fn rotate(pool: &PgPool, user_id: Uuid, raw_token: &str) -> Result<()> {
     let token_hash = hash_token(raw_token);
     let expires_at = Utc::now() + Duration::days(PUBLIC_TOKEN_VALIDITY_DAYS);
-    let mut tx = pool.begin().await?;
-    sqlx::query(
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
+    crate::db::query(
         r#"
         UPDATE public_tokens
         SET revoked_at = now()
@@ -26,9 +27,9 @@ pub async fn rotate(pool: &PgPool, user_id: Uuid, raw_token: &str) -> Result<()>
         "#,
     )
     .bind(user_id)
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO public_tokens (token_hash, user_id, expires_at, rotated_at)
         VALUES ($1, $2, $3, now())
@@ -37,14 +38,14 @@ pub async fn rotate(pool: &PgPool, user_id: Uuid, raw_token: &str) -> Result<()>
     .bind(token_hash)
     .bind(user_id)
     .bind(expires_at)
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
     tx.commit().await?;
     Ok(())
 }
 
 pub async fn enabled_for_user(pool: &PgPool, user_id: Uuid) -> Result<bool> {
-    let enabled = sqlx::query_scalar::<_, bool>(
+    let enabled = crate::db::query_scalar::<bool>(
         r#"
         SELECT EXISTS (
           SELECT 1
@@ -62,7 +63,7 @@ pub async fn enabled_for_user(pool: &PgPool, user_id: Uuid) -> Result<bool> {
 }
 
 pub async fn delete_for_user(pool: &PgPool, user_id: Uuid) -> Result<bool> {
-    let result = sqlx::query(
+    let result = crate::db::query(
         r#"
         UPDATE public_tokens
         SET revoked_at = now()
@@ -77,7 +78,7 @@ pub async fn delete_for_user(pool: &PgPool, user_id: Uuid) -> Result<bool> {
 
 pub async fn user_id_for_token(pool: &PgPool, raw_token: &str) -> Result<Option<Uuid>> {
     let token_hash = hash_token(raw_token);
-    let user_id = sqlx::query_scalar::<_, Uuid>(
+    let user_id = crate::db::query_scalar::<Uuid>(
         r#"
         SELECT user_id
         FROM public_tokens

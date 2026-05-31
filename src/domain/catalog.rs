@@ -1,8 +1,7 @@
 use serde::Serialize;
-use sqlx::FromRow;
 use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct EntityRef {
     pub id: String,
     pub name: String,
@@ -63,3 +62,5 @@ pub struct SearchResults {
     pub artists: Vec<EntityRef>,
     pub albums: Vec<EntityRef>,
 }
+
+crate::impl_from_pg_row!(EntityRef { id, name });

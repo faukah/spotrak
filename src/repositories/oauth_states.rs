@@ -1,16 +1,21 @@
+use crate::db::PgPool;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Utc};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, PgPool};
 
 use crate::error::Result;
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct ConsumedOAuthState {
     pub code_verifier: String,
     pub next_path: Option<String>,
 }
+
+crate::impl_from_pg_row!(ConsumedOAuthState {
+    code_verifier,
+    next_path,
+});
 
 pub fn generate_state() -> String {
     random_url_safe_secret()
@@ -46,7 +51,7 @@ pub async fn create(
     expires_at: DateTime<Utc>,
 ) -> Result<()> {
     let state_hash = hash_state(raw_state);
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO oauth_states (state_hash, code_verifier, next_path, expires_at)
         VALUES ($1, $2, $3, $4)
@@ -63,7 +68,7 @@ pub async fn create(
 
 pub async fn consume(pool: &PgPool, raw_state: &str) -> Result<Option<ConsumedOAuthState>> {
     let state_hash = hash_state(raw_state);
-    let consumed = sqlx::query_as::<_, ConsumedOAuthState>(
+    let consumed = crate::db::query_as::<ConsumedOAuthState>(
         r#"
         DELETE FROM oauth_states
         WHERE state_hash = $1 AND expires_at > now()
@@ -77,7 +82,7 @@ pub async fn consume(pool: &PgPool, raw_state: &str) -> Result<Option<ConsumedOA
 }
 
 pub async fn cleanup_expired(pool: &PgPool) -> Result<u64> {
-    let result = sqlx::query("DELETE FROM oauth_states WHERE expires_at <= now()")
+    let result = crate::db::query("DELETE FROM oauth_states WHERE expires_at <= now()")
         .execute(pool)
         .await?;
     Ok(result.rows_affected())

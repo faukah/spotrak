@@ -9,7 +9,6 @@ use std::{
 
 use reqwest::Client;
 use secrecy::ExposeSecret;
-use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -18,7 +17,7 @@ use crate::{config::Config, error::Result};
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
-    pub db: PgPool,
+    pub db: deadpool_postgres::Pool,
     pub http: Client,
     pub spotify_limiter: Arc<Mutex<Instant>>,
     pub currently_playing_locks: Arc<Mutex<HashMap<Uuid, Arc<Mutex<()>>>>>,
@@ -63,10 +62,7 @@ pub struct MetricsSnapshot {
 
 impl AppState {
     pub async fn connect(config: Config) -> Result<Self> {
-        let db = PgPoolOptions::new()
-            .max_connections(10)
-            .connect(config.database_url.expose_secret())
-            .await?;
+        let db = crate::db::build_pool(config.database_url.expose_secret(), 10)?;
         let http = Client::builder()
             .user_agent(format!("spotrak/{}", env!("CARGO_PKG_VERSION")))
             .connect_timeout(Duration::from_secs(10))

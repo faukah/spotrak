@@ -66,15 +66,16 @@ pub async fn complete_spotify_login(
         .map(|token| token_crypto::encrypt_spotify_token(&state.config, token))
         .transpose()?;
 
-    let mut tx = state.db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+    let mut client = state.db.get().await?;
+    let tx = client.transaction().await?;
+    crate::db::query("SELECT pg_advisory_xact_lock($1)")
         .bind(FIRST_ADMIN_LOCK_KEY)
-        .execute(&mut *tx)
+        .execute(&tx)
         .await?;
 
-    let existing = users::find_by_spotify_id_tx(&mut tx, &profile.id).await?;
-    let preferences = settings::global_tx(&mut tx).await?;
-    let user_count = users::count_tx(&mut tx).await?;
+    let existing = users::find_by_spotify_id_tx(&tx, &profile.id).await?;
+    let preferences = settings::global_tx(&tx).await?;
+    let user_count = users::count_tx(&tx).await?;
 
     if existing.is_none() && !preferences.allow_registrations && user_count > 0 {
         return Err(AppError::Forbidden);
@@ -85,16 +86,16 @@ pub async fn complete_spotify_login(
         spotify_id: profile.id,
         admin: existing.map(|user| user.admin).unwrap_or(user_count == 0),
     };
-    let user = users::upsert_login(&mut tx, &new_user).await?;
+    let user = users::upsert_login(&tx, &new_user).await?;
     let user = users::update_tokens_tx(
-        &mut tx,
+        &tx,
         user.id,
         &encrypted_access_token,
         encrypted_refresh_token.as_deref(),
         tokens.token_expires_at,
     )
     .await?;
-    settings::ensure_default(&mut tx, user.id).await?;
+    settings::ensure_default(&tx, user.id).await?;
     tx.commit().await?;
 
     let session_token = sessions::generate_token();

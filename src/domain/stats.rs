@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use utoipa::ToSchema;
 
 use crate::domain::{
@@ -67,7 +66,7 @@ pub struct StatsBucketAxis {
     pub buckets: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct SummaryStats {
     pub total_listens: i64,
     pub total_duration_ms: i64,
@@ -76,7 +75,7 @@ pub struct SummaryStats {
     pub unique_albums: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct DiscoveryStats {
     pub total_listens: i64,
     pub unique_tracks: i64,
@@ -88,14 +87,14 @@ pub struct DiscoveryStats {
     pub repeat_share: f64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct TimelinePoint {
     pub bucket: String,
     pub count: i64,
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct TopTrack {
     pub id: String,
     pub name: String,
@@ -108,7 +107,7 @@ pub struct TopTrack {
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct TopArtist {
     pub id: String,
     pub name: String,
@@ -117,7 +116,7 @@ pub struct TopArtist {
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct TopAlbum {
     pub id: String,
     pub name: String,
@@ -128,7 +127,7 @@ pub struct TopAlbum {
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct HistoryEvent {
     pub id: uuid::Uuid,
     pub track_id: String,
@@ -143,14 +142,14 @@ pub struct HistoryEvent {
     pub source: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct HourRepartitionPoint {
     pub hour: i32,
     pub count: i64,
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct FeatureRatioStats {
     pub solo_count: i64,
     pub feature_count: i64,
@@ -158,7 +157,7 @@ pub struct FeatureRatioStats {
     pub feature_duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct FeatureAverageStats {
     pub unique_tracks: i64,
     pub featured_tracks: i64,
@@ -166,7 +165,7 @@ pub struct FeatureAverageStats {
     pub average_features_per_song: f64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct FeatureTimelinePoint {
     pub bucket: String,
     pub unique_tracks: i64,
@@ -175,7 +174,7 @@ pub struct FeatureTimelinePoint {
     pub average_features_per_song: f64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct AlbumReleaseYearPoint {
     pub release_year: Option<i32>,
     pub count: i64,
@@ -188,7 +187,7 @@ pub struct AlbumReleaseYearsStats {
     pub distribution: Vec<AlbumReleaseYearPoint>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct DiversityTimelinePoint {
     pub bucket: String,
     pub unique_tracks: i64,
@@ -197,7 +196,7 @@ pub struct DiversityTimelinePoint {
     pub average_release_year: Option<f64>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct EntityStats {
     pub total_listens: i64,
     pub total_duration_ms: i64,
@@ -239,7 +238,7 @@ pub struct ListeningSessionStats {
     pub most_intense: Option<ListeningSessionSummary>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct ListeningConcentrationStats {
     pub total_listens: i64,
     pub artist_count: i64,
@@ -253,7 +252,7 @@ pub struct ListeningConcentrationStats {
     pub effective_artist_count: f64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct ComebackArtist {
     pub artist_id: String,
     pub artist_name: String,
@@ -297,7 +296,7 @@ pub struct RepeatLoopStats {
     pub longest_artist_run: Option<ArtistRunSummary>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct BucketedTopTrack {
     pub bucket: String,
     pub id: String,
@@ -311,7 +310,7 @@ pub struct BucketedTopTrack {
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct BucketedTopArtist {
     pub bucket: String,
     pub id: String,
@@ -321,7 +320,7 @@ pub struct BucketedTopArtist {
     pub duration_ms: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct HourlyTopArtist {
     pub hour: i32,
     pub artist_id: String,
@@ -332,7 +331,7 @@ pub struct HourlyTopArtist {
     pub rank: i64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct BucketedTopAlbum {
     pub bucket: String,
     pub id: String,
@@ -342,3 +341,189 @@ pub struct BucketedTopAlbum {
     pub count: i64,
     pub duration_ms: i64,
 }
+
+crate::impl_from_pg_row!(SummaryStats {
+    total_listens,
+    total_duration_ms,
+    unique_tracks,
+    unique_artists,
+    unique_albums,
+});
+
+crate::impl_from_pg_row!(DiscoveryStats {
+    total_listens,
+    unique_tracks,
+    unique_artists,
+    new_tracks,
+    new_artists,
+    repeat_listens,
+    discovery_share,
+    repeat_share,
+});
+
+crate::impl_from_pg_row!(TimelinePoint {
+    bucket,
+    count,
+    duration_ms,
+});
+
+crate::impl_from_pg_row!(TopTrack {
+    id,
+    name,
+    album_id,
+    album_name,
+    artist_id,
+    artist_name,
+    image_url,
+    count,
+    duration_ms,
+});
+
+crate::impl_from_pg_row!(TopArtist {
+    id,
+    name,
+    image_url,
+    count,
+    duration_ms,
+});
+
+crate::impl_from_pg_row!(TopAlbum {
+    id,
+    name,
+    artist_name,
+    release_year,
+    image_url,
+    count,
+    duration_ms,
+});
+
+crate::impl_from_pg_row!(HistoryEvent {
+    id,
+    track_id,
+    track_name,
+    album_id,
+    album_name,
+    artist_id,
+    artist_name,
+    image_url,
+    duration_ms,
+    played_at,
+    source,
+});
+
+crate::impl_from_pg_row!(HourRepartitionPoint {
+    hour,
+    count,
+    duration_ms,
+});
+
+crate::impl_from_pg_row!(FeatureRatioStats {
+    solo_count,
+    feature_count,
+    solo_duration_ms,
+    feature_duration_ms,
+});
+
+crate::impl_from_pg_row!(FeatureAverageStats {
+    unique_tracks,
+    featured_tracks,
+    total_features,
+    average_features_per_song,
+});
+
+crate::impl_from_pg_row!(FeatureTimelinePoint {
+    bucket,
+    unique_tracks,
+    featured_tracks,
+    total_features,
+    average_features_per_song,
+});
+
+crate::impl_from_pg_row!(AlbumReleaseYearPoint {
+    release_year,
+    count,
+    duration_ms,
+});
+
+crate::impl_from_pg_row!(DiversityTimelinePoint {
+    bucket,
+    unique_tracks,
+    unique_artists,
+    unique_albums,
+    average_release_year,
+});
+
+crate::impl_from_pg_row!(EntityStats {
+    total_listens,
+    total_duration_ms,
+    unique_tracks,
+    unique_artists,
+    unique_albums,
+    first_played_at,
+    last_played_at,
+});
+
+crate::impl_from_pg_row!(ListeningConcentrationStats {
+    total_listens,
+    artist_count,
+    top_artist_id,
+    top_artist_name,
+    top_artist_image_url,
+    top_artist_listens,
+    top_artist_share,
+    top_five_share,
+    top_ten_share,
+    effective_artist_count,
+});
+
+crate::impl_from_pg_row!(ComebackArtist {
+    artist_id,
+    artist_name,
+    image_url,
+    gap_ms,
+    previous_played_at,
+    returned_at,
+    range_listens,
+});
+
+crate::impl_from_pg_row!(BucketedTopTrack {
+    bucket,
+    id,
+    name,
+    album_id,
+    album_name,
+    artist_id,
+    artist_name,
+    image_url,
+    count,
+    duration_ms,
+});
+
+crate::impl_from_pg_row!(BucketedTopArtist {
+    bucket,
+    id,
+    name,
+    image_url,
+    count,
+    duration_ms,
+});
+
+crate::impl_from_pg_row!(HourlyTopArtist {
+    hour,
+    artist_id,
+    artist_name,
+    image_url,
+    count,
+    duration_ms,
+    rank,
+});
+
+crate::impl_from_pg_row!(BucketedTopAlbum {
+    bucket,
+    id,
+    name,
+    artist_name,
+    image_url,
+    count,
+    duration_ms,
+});

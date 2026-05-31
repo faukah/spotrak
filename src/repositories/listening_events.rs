@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::db::{PgPool, Transaction};
 use chrono::{DateTime, Duration, Utc};
-use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -34,7 +34,7 @@ pub async fn history(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<HistoryEvent>> {
-    let rows = sqlx::query_as::<_, HistoryEvent>(
+    let rows = crate::db::query_as::<HistoryEvent>(
         r#"
         SELECT le.id,
                t.id AS track_id,
@@ -75,7 +75,7 @@ pub async fn summary(
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
 ) -> Result<SummaryStats> {
-    let stats = sqlx::query_as::<_, SummaryStats>(
+    let stats = crate::db::query_as::<SummaryStats>(
         r#"
         SELECT COUNT(*)::bigint AS total_listens,
                COALESCE(SUM(duration_ms), 0)::bigint AS total_duration_ms,
@@ -103,7 +103,7 @@ pub async fn discovery_stats(
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
 ) -> Result<DiscoveryStats> {
-    let stats = sqlx::query_as::<_, DiscoveryStats>(
+    let stats = crate::db::query_as::<DiscoveryStats>(
         r#"
         WITH range_events AS MATERIALIZED (
           SELECT track_id, primary_artist_id, played_at
@@ -202,7 +202,7 @@ pub async fn timeline(
     };
 
     if let Some(grain) = grain {
-        let rows = sqlx::query_as::<_, TimelinePoint>(
+        let rows = crate::db::query_as::<TimelinePoint>(
             r#"
             SELECT to_char(date_trunc($3, timezone($2, played_at)), 'YYYY-MM-DD"T"HH24:MI:SS') AS bucket,
                    COUNT(*)::bigint AS count,
@@ -225,7 +225,7 @@ pub async fn timeline(
         .await?;
         Ok(rows)
     } else {
-        let row = sqlx::query_as::<_, TimelinePoint>(
+        let row = crate::db::query_as::<TimelinePoint>(
             r#"
             SELECT 'all'::text AS bucket,
                    COUNT(*)::bigint AS count,
@@ -276,7 +276,7 @@ pub async fn top_tracks(
         LIMIT $4 OFFSET $5
         "#
     );
-    let rows = sqlx::query_as::<_, TopTrack>(&sql)
+    let rows = crate::db::query_as::<TopTrack>(&sql)
         .bind(user_id)
         .bind(start)
         .bind(end)
@@ -319,7 +319,7 @@ pub async fn top_artists(
         LIMIT $4 OFFSET $5
         "#
     );
-    let rows = sqlx::query_as::<_, TopArtist>(&sql)
+    let rows = crate::db::query_as::<TopArtist>(&sql)
         .bind(user_id)
         .bind(start)
         .bind(end)
@@ -336,7 +336,7 @@ pub async fn concentration_stats(
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
 ) -> Result<ListeningConcentrationStats> {
-    let stats = sqlx::query_as::<_, ListeningConcentrationStats>(
+    let stats = crate::db::query_as::<ListeningConcentrationStats>(
         r#"
         WITH artist_counts AS (
           SELECT ar.id,
@@ -415,7 +415,7 @@ pub async fn comeback_artists(
     end: Option<DateTime<Utc>>,
     limit: i64,
 ) -> Result<Vec<ComebackArtist>> {
-    let rows = sqlx::query_as::<_, ComebackArtist>(
+    let rows = crate::db::query_as::<ComebackArtist>(
         r#"
         WITH artist_events AS MATERIALIZED (
           SELECT le.primary_artist_id,
@@ -530,7 +530,7 @@ pub async fn top_artists_by_hour(
         ORDER BY hour ASC, rank ASC, artist_name ASC, artist_id ASC
         "#
     );
-    let rows = sqlx::query_as::<_, HourlyTopArtist>(&sql)
+    let rows = crate::db::query_as::<HourlyTopArtist>(&sql)
         .bind(user_id)
         .bind(timezone)
         .bind(start)
@@ -576,7 +576,7 @@ pub async fn top_albums(
         LIMIT $4 OFFSET $5
         "#
     );
-    let rows = sqlx::query_as::<_, TopAlbum>(&sql)
+    let rows = crate::db::query_as::<TopAlbum>(&sql)
         .bind(user_id)
         .bind(start)
         .bind(end)
@@ -601,7 +601,7 @@ pub async fn hour_repartition(
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
 ) -> Result<Vec<HourRepartitionPoint>> {
-    let rows = sqlx::query_as::<_, HourRepartitionPoint>(
+    let rows = crate::db::query_as::<HourRepartitionPoint>(
         r#"
         SELECT EXTRACT(HOUR FROM timezone($2, played_at))::int AS hour,
                COUNT(*)::bigint AS count,
@@ -630,7 +630,7 @@ pub async fn feature_ratio(
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
 ) -> Result<FeatureRatioStats> {
-    let stats = sqlx::query_as::<_, FeatureRatioStats>(
+    let stats = crate::db::query_as::<FeatureRatioStats>(
         r#"
         WITH track_artist_counts AS (
           SELECT track_id, COUNT(*)::bigint AS artist_count
@@ -664,7 +664,7 @@ pub async fn feature_average(
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
 ) -> Result<FeatureAverageStats> {
-    let stats = sqlx::query_as::<_, FeatureAverageStats>(
+    let stats = crate::db::query_as::<FeatureAverageStats>(
         r#"
         WITH listened_tracks AS (
           SELECT DISTINCT le.track_id
@@ -705,7 +705,7 @@ pub async fn feature_timeline(
     end: Option<DateTime<Utc>>,
 ) -> Result<Vec<FeatureTimelinePoint>> {
     let grain = bucket_grain(split);
-    let rows = sqlx::query_as::<_, FeatureTimelinePoint>(
+    let rows = crate::db::query_as::<FeatureTimelinePoint>(
         r#"
         WITH listened_tracks AS (
           SELECT date_trunc($3, timezone($2, le.played_at)) AS bucket,
@@ -751,7 +751,7 @@ pub async fn album_release_years(
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
 ) -> Result<AlbumReleaseYearsStats> {
-    let distribution = sqlx::query_as::<_, AlbumReleaseYearPoint>(
+    let distribution = crate::db::query_as::<AlbumReleaseYearPoint>(
         r#"
         SELECT a.release_year,
                COUNT(*)::bigint AS count,
@@ -808,7 +808,7 @@ pub async fn diversity_timeline(
     end: Option<DateTime<Utc>>,
 ) -> Result<Vec<DiversityTimelinePoint>> {
     let grain = bucket_grain(split);
-    let rows = sqlx::query_as::<_, DiversityTimelinePoint>(
+    let rows = crate::db::query_as::<DiversityTimelinePoint>(
         r#"
         SELECT to_char(date_trunc($3, timezone($2, le.played_at)), 'YYYY-MM-DD"T"HH24:MI:SS') AS bucket,
                COUNT(DISTINCT le.track_id)::bigint AS unique_tracks,
@@ -865,7 +865,7 @@ pub async fn entity_stats(
           AND ($4::timestamptz IS NULL OR played_at < $4)
         "#
     );
-    let stats = sqlx::query_as::<_, EntityStats>(&sql)
+    let stats = crate::db::query_as::<EntityStats>(&sql)
         .bind(user_id)
         .bind(id)
         .bind(start)
@@ -875,11 +875,8 @@ pub async fn entity_stats(
     Ok(stats)
 }
 
-pub async fn delete_imported_history(
-    tx: &mut Transaction<'_, Postgres>,
-    user_id: Uuid,
-) -> Result<u64> {
-    let result = sqlx::query(
+pub async fn delete_imported_history(tx: &Transaction<'_>, user_id: Uuid) -> Result<u64> {
+    let result = crate::db::query(
         r#"
         DELETE FROM listening_events
         WHERE user_id = $1
@@ -887,7 +884,7 @@ pub async fn delete_imported_history(
         "#,
     )
     .bind(user_id)
-    .execute(&mut **tx)
+    .execute(tx)
     .await?;
     Ok(result.rows_affected())
 }
@@ -934,7 +931,7 @@ async fn history_ascending(
     start: Option<DateTime<Utc>>,
     end: Option<DateTime<Utc>>,
 ) -> Result<Vec<HistoryEvent>> {
-    let rows = sqlx::query_as::<_, HistoryEvent>(
+    let rows = crate::db::query_as::<HistoryEvent>(
         r#"
         SELECT le.id,
                t.id AS track_id,
@@ -989,7 +986,7 @@ fn build_sessions(events: &[HistoryEvent]) -> Vec<LongestSession> {
     let mut current_end = track_end(&events[0]);
 
     for event in events {
-        let event_end = track_end(&event);
+        let event_end = track_end(event);
         if !current_tracks.is_empty() && event.played_at > current_end + Duration::minutes(10) {
             sessions.push(build_session(
                 current_start,
@@ -1042,9 +1039,7 @@ fn session_stats(sessions: &[LongestSession]) -> ListeningSessionStats {
     let most_intense = if intense_pool.is_empty() {
         sessions.iter().max_by(compare_session_intensity)
     } else {
-        intense_pool
-            .into_iter()
-            .max_by(|a, b| compare_session_intensity(a, b))
+        intense_pool.into_iter().max_by(compare_session_intensity)
     }
     .map(summarize_session);
 

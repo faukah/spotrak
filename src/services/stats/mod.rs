@@ -33,11 +33,10 @@ pub struct StatsAccessContext {
 const DASHBOARD_ARTIST_DISTRIBUTION_LIMIT: i64 = 100;
 const DASHBOARD_COMEBACK_ARTISTS_LIMIT: i64 = 5;
 
+type IntervalBounds = (Option<DateTime<Utc>>, Option<DateTime<Utc>>);
+
 impl StatsAccessContext {
-    pub fn interval_bounds(
-        &self,
-        query: &IntervalQuery,
-    ) -> Result<(Option<DateTime<Utc>>, Option<DateTime<Utc>>)> {
+    pub fn interval_bounds(&self, query: &IntervalQuery) -> Result<IntervalBounds> {
         query.resolved_bounds(self.timezone)
     }
 
@@ -501,10 +500,10 @@ fn bucket_axis<'a>(
         .filter(|bucket| !bucket.trim().is_empty())
         .map(str::to_owned)
         .collect::<BTreeSet<_>>();
-    if let (Some(start), Some(end)) = (start, end) {
-        if let Some(axis) = bounded_bucket_axis(timezone, split, start, end) {
-            return axis;
-        }
+    if let (Some(start), Some(end)) = (start, end)
+        && let Some(axis) = bounded_bucket_axis(timezone, split, start, end)
+    {
+        return axis;
     }
     raw.into_iter().collect()
 }

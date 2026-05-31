@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use crate::db::PgPool;
 
 use crate::{
     domain::catalog::{EntityRef, SearchResults},
@@ -8,7 +8,7 @@ use crate::{
 pub async fn search(pool: &PgPool, query: &str, limit: i64) -> Result<SearchResults> {
     let escaped_query = escape_like(query);
     let pattern = format!("%{escaped_query}%");
-    let tracks = sqlx::query_as::<_, EntityRef>(
+    let tracks = crate::db::query_as::<EntityRef>(
         r#"
         SELECT id, name
         FROM tracks
@@ -23,7 +23,7 @@ pub async fn search(pool: &PgPool, query: &str, limit: i64) -> Result<SearchResu
     .fetch_all(pool)
     .await?;
 
-    let artists = sqlx::query_as::<_, EntityRef>(
+    let artists = crate::db::query_as::<EntityRef>(
         r#"
         SELECT id, name
         FROM artists
@@ -38,7 +38,7 @@ pub async fn search(pool: &PgPool, query: &str, limit: i64) -> Result<SearchResu
     .fetch_all(pool)
     .await?;
 
-    let albums = sqlx::query_as::<_, EntityRef>(
+    let albums = crate::db::query_as::<EntityRef>(
         r#"
         SELECT id, name
         FROM albums

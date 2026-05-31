@@ -8,7 +8,6 @@
   rustPlatform,
   cargo,
   rustfmt,
-  sqlx-cli,
   cacert,
   deno,
   oxlint,
@@ -25,7 +24,6 @@ mkShell {
 
     deno
     oxlint
-    sqlx-cli
     cacert
 
   ];

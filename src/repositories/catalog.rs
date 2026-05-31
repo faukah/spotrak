@@ -1,6 +1,6 @@
+use crate::db::{PgPool, Transaction};
 use chrono::{DateTime, Utc};
 use serde_json::{Value, json};
-use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -14,7 +14,7 @@ use crate::{
     error::{AppError, Result},
 };
 
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 struct TrackRow {
     id: String,
     name: String,
@@ -31,7 +31,7 @@ struct TrackRow {
     album_images: Value,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 struct ArtistRow {
     id: String,
     name: String,
@@ -43,7 +43,7 @@ struct ArtistRow {
     blacklisted: bool,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 struct AlbumRow {
     id: String,
     name: String,
@@ -56,11 +56,52 @@ struct AlbumRow {
     images: Value,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Debug)]
 struct SpotifySearchCacheRow {
     found: bool,
     raw: Option<Value>,
 }
+
+crate::impl_from_pg_row!(TrackRow {
+    id,
+    name,
+    duration_ms,
+    explicit,
+    href,
+    uri,
+    popularity,
+    disc_number,
+    track_number,
+    images,
+    album_id,
+    album_name,
+    album_images,
+});
+
+crate::impl_from_pg_row!(ArtistRow {
+    id,
+    name,
+    href,
+    uri,
+    popularity,
+    images,
+    genres,
+    blacklisted,
+});
+
+crate::impl_from_pg_row!(AlbumRow {
+    id,
+    name,
+    album_type,
+    release_date,
+    release_year,
+    total_tracks,
+    href,
+    uri,
+    images,
+});
+
+crate::impl_from_pg_row!(SpotifySearchCacheRow { found, raw });
 
 pub enum SpotifySearchCacheHit {
     Found(Box<SpotifyTrack>),
@@ -68,7 +109,7 @@ pub enum SpotifySearchCacheHit {
 }
 
 pub async fn user_has_track(pool: &PgPool, user_id: Uuid, track_id: &str) -> Result<bool> {
-    let exists = sqlx::query_scalar::<_, bool>(
+    let exists = crate::db::query_scalar::<bool>(
         r#"
         SELECT EXISTS (
           SELECT 1 FROM listening_events
@@ -86,7 +127,7 @@ pub async fn user_has_track(pool: &PgPool, user_id: Uuid, track_id: &str) -> Res
 }
 
 pub async fn user_has_artist(pool: &PgPool, user_id: Uuid, artist_id: &str) -> Result<bool> {
-    let exists = sqlx::query_scalar::<_, bool>(
+    let exists = crate::db::query_scalar::<bool>(
         r#"
         SELECT EXISTS (
           SELECT 1
@@ -111,7 +152,7 @@ pub async fn user_has_artist(pool: &PgPool, user_id: Uuid, artist_id: &str) -> R
 }
 
 pub async fn user_has_album(pool: &PgPool, user_id: Uuid, album_id: &str) -> Result<bool> {
-    let exists = sqlx::query_scalar::<_, bool>(
+    let exists = crate::db::query_scalar::<bool>(
         r#"
         SELECT EXISTS (
           SELECT 1 FROM listening_events
@@ -129,7 +170,7 @@ pub async fn user_has_album(pool: &PgPool, user_id: Uuid, album_id: &str) -> Res
 }
 
 pub async fn spotify_track_from_cache(pool: &PgPool, id: &str) -> Result<Option<SpotifyTrack>> {
-    let raw = sqlx::query_scalar::<_, Value>(
+    let raw = crate::db::query_scalar::<Value>(
         r#"
         SELECT raw
         FROM tracks
@@ -148,7 +189,7 @@ pub async fn spotify_track_from_name_artist_cache(
     track_name: &str,
     artist_name: &str,
 ) -> Result<Option<SpotifyTrack>> {
-    let raw = sqlx::query_scalar::<_, Value>(
+    let raw = crate::db::query_scalar::<Value>(
         r#"
         SELECT t.raw
         FROM tracks t
@@ -173,7 +214,7 @@ pub async fn spotify_search_cache(
     pool: &PgPool,
     query_key: &str,
 ) -> Result<Option<SpotifySearchCacheHit>> {
-    let row = sqlx::query_as::<_, SpotifySearchCacheRow>(
+    let row = crate::db::query_as::<SpotifySearchCacheRow>(
         r#"
         SELECT found, raw
         FROM spotify_search_cache
@@ -206,7 +247,7 @@ pub async fn upsert_spotify_search_cache(
     track: Option<&SpotifyTrack>,
 ) -> Result<()> {
     let raw = track.map(|track| serde_json::to_value(track).unwrap_or(Value::Null));
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO spotify_search_cache (query_key, query, track_id, raw, found, updated_at)
         VALUES ($1, $2, NULL, $3, $4, now())
@@ -232,7 +273,7 @@ pub async fn has_user_track_play_near(
     track_id: &str,
     played_at: DateTime<Utc>,
 ) -> Result<bool> {
-    let duplicate = sqlx::query_scalar::<_, bool>(
+    let duplicate = crate::db::query_scalar::<bool>(
         r#"
         SELECT EXISTS (
           SELECT 1 FROM listening_events
@@ -252,7 +293,7 @@ pub async fn has_user_track_play_near(
 }
 
 pub async fn track(pool: &PgPool, id: &str) -> Result<TrackDetail> {
-    let row = sqlx::query_as::<_, TrackRow>(
+    let row = crate::db::query_as::<TrackRow>(
         r#"
         SELECT t.id, t.name, t.duration_ms, t.explicit, t.href, t.uri, t.popularity,
                t.disc_number, t.track_number, t.images,
@@ -289,7 +330,7 @@ pub async fn track(pool: &PgPool, id: &str) -> Result<TrackDetail> {
 }
 
 pub async fn artist(pool: &PgPool, user_id: Uuid, id: &str) -> Result<ArtistDetail> {
-    let row = sqlx::query_as::<_, ArtistRow>(
+    let row = crate::db::query_as::<ArtistRow>(
         r#"
         SELECT a.id, a.name, a.href, a.uri, a.popularity,
                COALESCE(
@@ -333,7 +374,7 @@ pub async fn artist(pool: &PgPool, user_id: Uuid, id: &str) -> Result<ArtistDeta
 }
 
 pub async fn album(pool: &PgPool, id: &str) -> Result<AlbumDetail> {
-    let row = sqlx::query_as::<_, AlbumRow>(
+    let row = crate::db::query_as::<AlbumRow>(
         r#"
         SELECT id, name, album_type, release_date, release_year, total_tracks, href, uri, images
         FROM albums
@@ -361,7 +402,7 @@ pub async fn album(pool: &PgPool, id: &str) -> Result<AlbumDetail> {
 }
 
 pub async fn track_artists(pool: &PgPool, track_id: &str) -> Result<Vec<EntityRef>> {
-    let artists = sqlx::query_as::<_, EntityRef>(
+    let artists = crate::db::query_as::<EntityRef>(
         r#"
         SELECT a.id, a.name
         FROM track_artists ta
@@ -377,7 +418,7 @@ pub async fn track_artists(pool: &PgPool, track_id: &str) -> Result<Vec<EntityRe
 }
 
 pub async fn album_artists(pool: &PgPool, album_id: &str) -> Result<Vec<EntityRef>> {
-    let artists = sqlx::query_as::<_, EntityRef>(
+    let artists = crate::db::query_as::<EntityRef>(
         r#"
         SELECT a.id, a.name
         FROM album_artists aa
@@ -393,17 +434,18 @@ pub async fn album_artists(pool: &PgPool, album_id: &str) -> Result<Vec<EntityRe
 }
 
 pub async fn blacklist_artist(pool: &PgPool, user_id: Uuid, artist_id: &str) -> Result<()> {
-    let mut tx = pool.begin().await?;
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
     let exists =
-        sqlx::query_scalar::<_, bool>("SELECT EXISTS (SELECT 1 FROM artists WHERE id = $1)")
+        crate::db::query_scalar::<bool>("SELECT EXISTS (SELECT 1 FROM artists WHERE id = $1)")
             .bind(artist_id)
-            .fetch_one(&mut *tx)
+            .fetch_one(&tx)
             .await?;
     if !exists {
         return Err(AppError::NotFound);
     }
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO user_blacklisted_artists (user_id, artist_id)
         VALUES ($1, $2)
@@ -412,10 +454,10 @@ pub async fn blacklist_artist(pool: &PgPool, user_id: Uuid, artist_id: &str) -> 
     )
     .bind(user_id)
     .bind(artist_id)
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
 
-    sqlx::query(
+    crate::db::query(
         r#"
         UPDATE listening_events
         SET blacklisted_by = 'artist'
@@ -424,7 +466,7 @@ pub async fn blacklist_artist(pool: &PgPool, user_id: Uuid, artist_id: &str) -> 
     )
     .bind(user_id)
     .bind(artist_id)
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
 
     tx.commit().await?;
@@ -432,14 +474,15 @@ pub async fn blacklist_artist(pool: &PgPool, user_id: Uuid, artist_id: &str) -> 
 }
 
 pub async fn unblacklist_artist(pool: &PgPool, user_id: Uuid, artist_id: &str) -> Result<()> {
-    let mut tx = pool.begin().await?;
-    sqlx::query("DELETE FROM user_blacklisted_artists WHERE user_id = $1 AND artist_id = $2")
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
+    crate::db::query("DELETE FROM user_blacklisted_artists WHERE user_id = $1 AND artist_id = $2")
         .bind(user_id)
         .bind(artist_id)
-        .execute(&mut *tx)
+        .execute(&tx)
         .await?;
 
-    sqlx::query(
+    crate::db::query(
         r#"
         UPDATE listening_events
         SET blacklisted_by = NULL
@@ -448,7 +491,7 @@ pub async fn unblacklist_artist(pool: &PgPool, user_id: Uuid, artist_id: &str) -
     )
     .bind(user_id)
     .bind(artist_id)
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
 
     tx.commit().await?;
@@ -456,7 +499,7 @@ pub async fn unblacklist_artist(pool: &PgPool, user_id: Uuid, artist_id: &str) -
 }
 
 pub async fn upsert_recently_played_event(
-    tx: &mut Transaction<'_, Postgres>,
+    tx: &Transaction<'_>,
     user_id: Uuid,
     event: &SpotifyRecentlyPlayedItem,
     source: &str,
@@ -501,7 +544,7 @@ pub async fn upsert_recently_played_event(
     upsert_album(tx, &event.track.album).await?;
     for (position, artist) in event.track.album.artists.iter().enumerate() {
         if let Some(artist_id) = artist.id.as_deref() {
-            sqlx::query(
+            crate::db::query(
                 r#"
                 INSERT INTO album_artists (album_id, artist_id, position)
                 VALUES ($1, $2, $3)
@@ -511,7 +554,7 @@ pub async fn upsert_recently_played_event(
             .bind(album_id)
             .bind(artist_id)
             .bind(position as i32)
-            .execute(&mut **tx)
+            .execute(tx)
             .await?;
         }
     }
@@ -519,7 +562,7 @@ pub async fn upsert_recently_played_event(
     upsert_track(tx, &event.track).await?;
     for (position, artist) in event.track.artists.iter().enumerate() {
         if let Some(artist_id) = artist.id.as_deref() {
-            sqlx::query(
+            crate::db::query(
                 r#"
                 INSERT INTO track_artists (track_id, artist_id, position)
                 VALUES ($1, $2, $3)
@@ -529,12 +572,12 @@ pub async fn upsert_recently_played_event(
             .bind(track_id)
             .bind(artist_id)
             .bind(position as i32)
-            .execute(&mut **tx)
+            .execute(tx)
             .await?;
         }
     }
 
-    let blacklisted = sqlx::query_scalar::<_, bool>(
+    let blacklisted = crate::db::query_scalar::<bool>(
         r#"
         SELECT EXISTS (
           SELECT 1 FROM user_blacklisted_artists
@@ -544,11 +587,11 @@ pub async fn upsert_recently_played_event(
     )
     .bind(user_id)
     .bind(primary_artist_id)
-    .fetch_one(&mut **tx)
+    .fetch_one(tx)
     .await?;
     let blacklisted_by = blacklisted.then_some("artist");
 
-    let result = sqlx::query(
+    let result = crate::db::query(
         r#"
         INSERT INTO listening_events (
           user_id, track_id, album_id, primary_artist_id, duration_ms, played_at, blacklisted_by, source, import_job_id
@@ -566,19 +609,19 @@ pub async fn upsert_recently_played_event(
     .bind(blacklisted_by)
     .bind(source)
     .bind(import_job_id)
-    .execute(&mut **tx)
+    .execute(tx)
     .await?;
 
     Ok(result.rows_affected() == 1)
 }
 
 async fn has_fuzzy_duplicate(
-    tx: &mut Transaction<'_, Postgres>,
+    tx: &Transaction<'_>,
     user_id: Uuid,
     track_id: &str,
     played_at: DateTime<Utc>,
 ) -> Result<bool> {
-    let duplicate = sqlx::query_scalar::<_, bool>(
+    let duplicate = crate::db::query_scalar::<bool>(
         r#"
         SELECT EXISTS (
           SELECT 1 FROM listening_events
@@ -592,7 +635,7 @@ async fn has_fuzzy_duplicate(
     .bind(user_id)
     .bind(track_id)
     .bind(played_at)
-    .fetch_one(&mut **tx)
+    .fetch_one(tx)
     .await?;
     Ok(duplicate)
 }
@@ -601,7 +644,7 @@ pub async fn artists_missing_images(pool: &PgPool, ids: &[String]) -> Result<Vec
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let rows = sqlx::query_scalar::<_, String>(
+    let rows = crate::db::query_scalar::<String>(
         r#"
         SELECT input.id
         FROM unnest($1::text[]) AS input(id)
@@ -619,23 +662,21 @@ pub async fn upsert_artist_metadata(pool: &PgPool, artists: &[SpotifyArtist]) ->
     if artists.is_empty() {
         return Ok(());
     }
-    let mut tx = pool.begin().await?;
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
     for artist in artists {
-        upsert_full_artist(&mut tx, artist).await?;
+        upsert_full_artist(&tx, artist).await?;
     }
     tx.commit().await?;
     Ok(())
 }
 
-async fn upsert_artist(
-    tx: &mut Transaction<'_, Postgres>,
-    artist: &SpotifySimpleArtist,
-) -> Result<()> {
+async fn upsert_artist(tx: &Transaction<'_>, artist: &SpotifySimpleArtist) -> Result<()> {
     let Some(id) = artist.id.as_deref() else {
         return Ok(());
     };
     let raw = serde_json::to_value(artist).unwrap_or(Value::Null);
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO artists (id, name, href, uri, type, raw)
         VALUES ($1, $2, $3, $4, $5, $6)
@@ -654,19 +695,16 @@ async fn upsert_artist(
     .bind(&artist.uri)
     .bind(&artist.item_type)
     .bind(raw)
-    .execute(&mut **tx)
+    .execute(tx)
     .await?;
     Ok(())
 }
 
-async fn upsert_full_artist(
-    tx: &mut Transaction<'_, Postgres>,
-    artist: &SpotifyArtist,
-) -> Result<()> {
+async fn upsert_full_artist(tx: &Transaction<'_>, artist: &SpotifyArtist) -> Result<()> {
     let images = serde_json::to_value(&artist.images).unwrap_or_else(|_| json!([]));
     let genres = serde_json::to_value(&artist.genres).unwrap_or_else(|_| json!([]));
     let raw = serde_json::to_value(artist).unwrap_or(Value::Null);
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO artists (id, name, href, uri, type, popularity, images, genres, raw)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -697,12 +735,12 @@ async fn upsert_full_artist(
     .bind(images)
     .bind(genres)
     .bind(raw)
-    .execute(&mut **tx)
+    .execute(tx)
     .await?;
     Ok(())
 }
 
-async fn upsert_album(tx: &mut Transaction<'_, Postgres>, album: &SpotifyAlbum) -> Result<()> {
+async fn upsert_album(tx: &Transaction<'_>, album: &SpotifyAlbum) -> Result<()> {
     let Some(id) = album.id.as_deref() else {
         return Ok(());
     };
@@ -714,7 +752,7 @@ async fn upsert_album(tx: &mut Transaction<'_, Postgres>, album: &SpotifyAlbum) 
     let images = serde_json::to_value(&album.images).unwrap_or_else(|_| json!([]));
     let raw = serde_json::to_value(album).unwrap_or(Value::Null);
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO albums (
           id, name, album_type, release_date, release_date_precision, release_year,
@@ -751,12 +789,12 @@ async fn upsert_album(tx: &mut Transaction<'_, Postgres>, album: &SpotifyAlbum) 
     .bind(&album.item_type)
     .bind(images)
     .bind(raw)
-    .execute(&mut **tx)
+    .execute(tx)
     .await?;
     Ok(())
 }
 
-async fn upsert_track(tx: &mut Transaction<'_, Postgres>, track: &SpotifyTrack) -> Result<()> {
+async fn upsert_track(tx: &Transaction<'_>, track: &SpotifyTrack) -> Result<()> {
     let Some(id) = track.id.as_deref() else {
         return Ok(());
     };
@@ -766,7 +804,7 @@ async fn upsert_track(tx: &mut Transaction<'_, Postgres>, track: &SpotifyTrack) 
     let images = serde_json::to_value(&track.album.images).unwrap_or_else(|_| json!([]));
     let raw = serde_json::to_value(track).unwrap_or(Value::Null);
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO tracks (
           id, name, album_id, duration_ms, explicit, href, uri, type, popularity,
@@ -805,7 +843,7 @@ async fn upsert_track(tx: &mut Transaction<'_, Postgres>, track: &SpotifyTrack) 
     .bind(track.track_number)
     .bind(images)
     .bind(raw)
-    .execute(&mut **tx)
+    .execute(tx)
     .await?;
     Ok(())
 }

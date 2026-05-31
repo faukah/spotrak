@@ -1,8 +1,8 @@
+use crate::db::PgPool;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Utc};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{domain::user::User, error::Result};
@@ -28,7 +28,7 @@ pub async fn create(
     expires_at: DateTime<Utc>,
 ) -> Result<()> {
     let token_hash = hash_token(raw_token);
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO sessions (token_hash, user_id, expires_at)
         VALUES ($1, $2, $3)
@@ -44,8 +44,9 @@ pub async fn create(
 
 pub async fn user_for_token(pool: &PgPool, raw_token: &str) -> Result<Option<User>> {
     let token_hash = hash_token(raw_token);
-    let mut tx = pool.begin().await?;
-    let user = sqlx::query_as::<_, User>(
+    let mut client = pool.get().await?;
+    let tx = client.transaction().await?;
+    let user = crate::db::query_as::<User>(
         r#"
         SELECT u.id, u.username, u.spotify_id, u.admin, u.access_token, u.refresh_token,
                u.token_expires_at, u.last_spotify_poll_at, u.first_listened_at, u.created_at, u.updated_at
@@ -55,11 +56,11 @@ pub async fn user_for_token(pool: &PgPool, raw_token: &str) -> Result<Option<Use
         "#,
     )
     .bind(&token_hash)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&tx)
     .await?;
 
     if user.is_some() {
-        sqlx::query(
+        crate::db::query(
             r#"
             UPDATE sessions
             SET last_seen_at = now()
@@ -68,7 +69,7 @@ pub async fn user_for_token(pool: &PgPool, raw_token: &str) -> Result<Option<Use
             "#,
         )
         .bind(token_hash)
-        .execute(&mut *tx)
+        .execute(&tx)
         .await?;
     }
     tx.commit().await?;
@@ -77,7 +78,7 @@ pub async fn user_for_token(pool: &PgPool, raw_token: &str) -> Result<Option<Use
 
 pub async fn delete(pool: &PgPool, raw_token: &str) -> Result<bool> {
     let token_hash = hash_token(raw_token);
-    let result = sqlx::query("DELETE FROM sessions WHERE token_hash = $1")
+    let result = crate::db::query("DELETE FROM sessions WHERE token_hash = $1")
         .bind(token_hash)
         .execute(pool)
         .await?;
@@ -85,7 +86,7 @@ pub async fn delete(pool: &PgPool, raw_token: &str) -> Result<bool> {
 }
 
 pub async fn cleanup_expired(pool: &PgPool) -> Result<u64> {
-    let result = sqlx::query("DELETE FROM sessions WHERE expires_at <= now()")
+    let result = crate::db::query("DELETE FROM sessions WHERE expires_at <= now()")
         .execute(pool)
         .await?;
     Ok(result.rows_affected())

@@ -1,5 +1,5 @@
+use crate::db::PgPool;
 use serde_json::Value;
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub async fn create_job(pool: &PgPool, user_id: Uuid, import_type: &str) -> Result<ImportJob> {
-    let job = sqlx::query_as::<_, ImportJob>(
+    let job = crate::db::query_as::<ImportJob>(
         r#"
         INSERT INTO import_jobs (user_id, import_type, status)
         VALUES ($1, $2, 'queued')
@@ -23,7 +23,7 @@ pub async fn create_job(pool: &PgPool, user_id: Uuid, import_type: &str) -> Resu
 }
 
 pub async fn update_metadata(pool: &PgPool, job_id: Uuid, metadata: Value) -> Result<ImportJob> {
-    let job = sqlx::query_as::<_, ImportJob>(
+    let job = crate::db::query_as::<ImportJob>(
         r#"
         UPDATE import_jobs
         SET metadata = $2, updated_at = now()
@@ -46,7 +46,7 @@ pub async fn add_file(
     original_name: &str,
     size_bytes: i64,
 ) -> Result<()> {
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO import_files (job_id, path, original_name, size_bytes)
         VALUES ($1, $2, $3, $4)
@@ -62,7 +62,7 @@ pub async fn add_file(
 }
 
 pub async fn claim_next(pool: &PgPool) -> Result<Option<ImportJob>> {
-    let job = sqlx::query_as::<_, ImportJob>(
+    let job = crate::db::query_as::<ImportJob>(
         r#"
         WITH next_job AS (
             SELECT id
@@ -90,7 +90,7 @@ pub async fn claim_next(pool: &PgPool) -> Result<Option<ImportJob>> {
 }
 
 pub async fn files(pool: &PgPool, job_id: Uuid) -> Result<Vec<ImportFile>> {
-    let files = sqlx::query_as::<_, ImportFile>(
+    let files = crate::db::query_as::<ImportFile>(
         r#"
         SELECT id, job_id, path, original_name, size_bytes, created_at
         FROM import_files
@@ -105,7 +105,7 @@ pub async fn files(pool: &PgPool, job_id: Uuid) -> Result<Vec<ImportFile>> {
 }
 
 pub async fn delete_files(pool: &PgPool, job_id: Uuid) -> Result<u64> {
-    let result = sqlx::query("DELETE FROM import_files WHERE job_id = $1")
+    let result = crate::db::query("DELETE FROM import_files WHERE job_id = $1")
         .bind(job_id)
         .execute(pool)
         .await?;
@@ -113,7 +113,7 @@ pub async fn delete_files(pool: &PgPool, job_id: Uuid) -> Result<u64> {
 }
 
 pub async fn list(pool: &PgPool, user_id: Uuid) -> Result<Vec<ImportJob>> {
-    let jobs = sqlx::query_as::<_, ImportJob>(
+    let jobs = crate::db::query_as::<ImportJob>(
         r#"
         SELECT id, user_id, import_type, status, total, current, metadata, error_message, created_at, updated_at
         FROM import_jobs
@@ -128,7 +128,7 @@ pub async fn list(pool: &PgPool, user_id: Uuid) -> Result<Vec<ImportJob>> {
 }
 
 pub async fn get(pool: &PgPool, user_id: Uuid, job_id: Uuid) -> Result<ImportJob> {
-    let job = sqlx::query_as::<_, ImportJob>(
+    let job = crate::db::query_as::<ImportJob>(
         r#"
         SELECT id, user_id, import_type, status, total, current, metadata, error_message, created_at, updated_at
         FROM import_jobs
@@ -149,7 +149,7 @@ pub async fn set_status(
     job_id: Uuid,
     status: &str,
 ) -> Result<ImportJob> {
-    let job = sqlx::query_as::<_, ImportJob>(
+    let job = crate::db::query_as::<ImportJob>(
         r#"
         UPDATE import_jobs
         SET status = $3, updated_at = now()
@@ -167,7 +167,7 @@ pub async fn set_status(
 }
 
 pub async fn delete_import_jobs_for_user(pool: &PgPool, user_id: Uuid) -> Result<u64> {
-    let result = sqlx::query(
+    let result = crate::db::query(
         r#"
         DELETE FROM import_jobs
         WHERE user_id = $1
@@ -181,7 +181,7 @@ pub async fn delete_import_jobs_for_user(pool: &PgPool, user_id: Uuid) -> Result
 }
 
 pub async fn delete(pool: &PgPool, user_id: Uuid, job_id: Uuid) -> Result<bool> {
-    let result = sqlx::query("DELETE FROM import_jobs WHERE id = $1 AND user_id = $2")
+    let result = crate::db::query("DELETE FROM import_jobs WHERE id = $1 AND user_id = $2")
         .bind(job_id)
         .bind(user_id)
         .execute(pool)
@@ -190,7 +190,7 @@ pub async fn delete(pool: &PgPool, user_id: Uuid, job_id: Uuid) -> Result<bool> 
 }
 
 pub async fn get_any(pool: &PgPool, job_id: Uuid) -> Result<ImportJob> {
-    let job = sqlx::query_as::<_, ImportJob>(
+    let job = crate::db::query_as::<ImportJob>(
         r#"
         SELECT id, user_id, import_type, status, total, current, metadata, error_message, created_at, updated_at
         FROM import_jobs
@@ -205,7 +205,7 @@ pub async fn get_any(pool: &PgPool, job_id: Uuid) -> Result<ImportJob> {
 }
 
 pub async fn mark_progress(pool: &PgPool, job_id: Uuid, total: i32, current: i32) -> Result<()> {
-    sqlx::query(
+    crate::db::query(
         r#"
         UPDATE import_jobs
         SET total = $2, current = $3, status = 'progress', updated_at = now()
@@ -221,7 +221,7 @@ pub async fn mark_progress(pool: &PgPool, job_id: Uuid, total: i32, current: i32
 }
 
 pub async fn mark_success(pool: &PgPool, job_id: Uuid, total: i32, current: i32) -> Result<()> {
-    sqlx::query(
+    crate::db::query(
         r#"
         UPDATE import_jobs
         SET total = $2, current = $3, status = 'success', error_message = NULL, updated_at = now()
@@ -237,7 +237,7 @@ pub async fn mark_success(pool: &PgPool, job_id: Uuid, total: i32, current: i32)
 }
 
 pub async fn mark_failure(pool: &PgPool, job_id: Uuid, message: &str) -> Result<()> {
-    sqlx::query(
+    crate::db::query(
         r#"
         UPDATE import_jobs
         SET status = 'failure', error_message = $2, updated_at = now()

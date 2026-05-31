@@ -1,15 +1,21 @@
+use crate::db::PgPool;
 use chrono::{Duration, Utc};
-use sqlx::{FromRow, PgPool};
 use uuid::Uuid;
 
 use crate::error::Result;
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub struct ArtistHydrationJob {
     pub artist_id: String,
     pub user_id: Uuid,
     pub attempts: i32,
 }
+
+crate::impl_from_pg_row!(ArtistHydrationJob {
+    artist_id,
+    user_id,
+    attempts,
+});
 
 pub async fn enqueue_artist_hydration(
     pool: &PgPool,
@@ -20,10 +26,10 @@ pub async fn enqueue_artist_hydration(
         return Ok(0);
     }
 
-    let result = sqlx::query(
+    let result = crate::db::query(
         r#"
         INSERT INTO spotify_artist_hydration_queue (artist_id, user_id)
-        SELECT DISTINCT trim(id), $2
+        SELECT DISTINCT trim(id), $2::uuid
         FROM unnest($1::text[]) AS input(id)
         WHERE trim(id) <> ''
         ON CONFLICT (artist_id, user_id) DO UPDATE SET
@@ -43,7 +49,7 @@ pub async fn claim_artist_hydration_jobs(
     pool: &PgPool,
     limit: i64,
 ) -> Result<Vec<ArtistHydrationJob>> {
-    let rows = sqlx::query_as::<_, ArtistHydrationJob>(
+    let rows = crate::db::query_as::<ArtistHydrationJob>(
         r#"
         WITH due AS (
           SELECT artist_id, user_id
@@ -70,7 +76,7 @@ pub async fn claim_artist_hydration_jobs(
 }
 
 pub async fn complete_artist_hydration(pool: &PgPool, artist_id: &str) -> Result<()> {
-    sqlx::query("DELETE FROM spotify_artist_hydration_queue WHERE artist_id = $1")
+    crate::db::query("DELETE FROM spotify_artist_hydration_queue WHERE artist_id = $1")
         .bind(artist_id)
         .execute(pool)
         .await?;
@@ -88,7 +94,7 @@ pub async fn fail_artist_hydration(
     let backoff_minutes = 2_i64.pow(capped_attempts as u32).min(240);
     let next_attempt_at = Utc::now() + Duration::minutes(backoff_minutes);
 
-    sqlx::query(
+    crate::db::query(
         r#"
         UPDATE spotify_artist_hydration_queue
         SET next_attempt_at = $2,

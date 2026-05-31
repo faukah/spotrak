@@ -11,6 +11,7 @@ rustPlatform.buildRustPackage {
     fileset = lib.fileset.unions [
       ../Cargo.toml
       ../Cargo.lock
+      ../db/spotrak-codegen
       ../src
       ../migrations
     ];

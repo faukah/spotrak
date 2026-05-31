@@ -114,12 +114,13 @@ pub async fn ingest_recently_played(
     user_id: Uuid,
     items: &[SpotifyRecentlyPlayedItem],
 ) -> Result<IngestionResult> {
-    let mut tx = state.db.begin().await?;
+    let mut client = state.db.get().await?;
+    let tx = client.transaction().await?;
     let mut inserted = 0;
     let mut earliest_played_at = None;
 
     for item in items {
-        if catalog::upsert_recently_played_event(&mut tx, user_id, item, "poller", None).await? {
+        if catalog::upsert_recently_played_event(&tx, user_id, item, "poller", None).await? {
             inserted += 1;
         }
         earliest_played_at = Some(match earliest_played_at {

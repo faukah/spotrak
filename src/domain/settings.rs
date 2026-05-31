@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -20,7 +19,7 @@ pub enum HourFormat {
     TwentyFour,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct UserSettings {
     pub user_id: Uuid,
     pub history_line: bool,
@@ -36,7 +35,7 @@ pub struct UserSettings {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct GlobalPreferences {
     pub allow_registrations: bool,
     pub allow_affinity: bool,
@@ -114,3 +113,22 @@ pub struct GlobalPreferencesPatch {
     pub allow_registrations: Option<bool>,
     pub allow_affinity: Option<bool>,
 }
+
+crate::impl_from_pg_row!(UserSettings {
+    user_id,
+    history_line,
+    preferred_stats_period,
+    nb_elements,
+    metric_used,
+    dark_mode,
+    timezone,
+    date_format,
+    hour_format,
+    updated_at,
+});
+
+crate::impl_from_pg_row!(GlobalPreferences {
+    allow_registrations,
+    allow_affinity,
+    updated_at,
+});

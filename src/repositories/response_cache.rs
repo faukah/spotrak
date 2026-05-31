@@ -1,7 +1,7 @@
+use crate::db::PgPool;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{error::AppError, error::Result};
@@ -19,7 +19,7 @@ pub async fn get<T>(
 where
     T: DeserializeOwned,
 {
-    let payload = sqlx::query_scalar::<_, Value>(
+    let payload = crate::db::query_scalar::<Value>(
         r#"
         SELECT payload
         FROM response_cache
@@ -56,7 +56,7 @@ where
     let payload = serde_json::to_value(value).map_err(|err| AppError::internal(err.to_string()))?;
     let expires_at: Option<DateTime<Utc>> = ttl.map(|ttl| Utc::now() + ttl);
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO response_cache (namespace, user_id, cache_key, payload, computed_at, expires_at)
         VALUES ($1, $2, $3, $4, now(), $5)
@@ -78,7 +78,7 @@ where
 }
 
 pub async fn invalidate_namespace(pool: &PgPool, namespace: &str, user_id: Uuid) -> Result<u64> {
-    let result = sqlx::query(
+    let result = crate::db::query(
         r#"
         DELETE FROM response_cache
         WHERE namespace = $1 AND user_id = $2
@@ -98,7 +98,7 @@ pub async fn invalidate_stats(pool: &PgPool, user_id: Uuid) -> Result<()> {
 }
 
 pub async fn cleanup_expired(pool: &PgPool) -> Result<u64> {
-    let result = sqlx::query(
+    let result = crate::db::query(
         r#"
         DELETE FROM response_cache
         WHERE expires_at IS NOT NULL AND expires_at <= now()

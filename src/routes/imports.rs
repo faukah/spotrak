@@ -265,8 +265,9 @@ pub async fn delete_imported_history(
         }
     }
 
-    let mut tx = state.db.begin().await?;
-    let deleted = listening_events::delete_imported_history(&mut tx, user.id).await?;
+    let mut client = state.db.get().await?;
+    let tx = client.transaction().await?;
+    let deleted = listening_events::delete_imported_history(&tx, user.id).await?;
     tx.commit().await?;
     imports::delete_import_jobs_for_user(&state.db, user.id).await?;
     for file in import_files {

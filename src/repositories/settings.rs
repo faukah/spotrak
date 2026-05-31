@@ -1,4 +1,4 @@
-use sqlx::{PgPool, Postgres, Transaction};
+use crate::db::{PgPool, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -6,11 +6,8 @@ use crate::{
     error::{AppError, Result},
 };
 
-pub async fn ensure_default(
-    tx: &mut Transaction<'_, Postgres>,
-    user_id: Uuid,
-) -> Result<UserSettings> {
-    let settings = sqlx::query_as::<_, UserSettings>(
+pub async fn ensure_default(tx: &Transaction<'_>, user_id: Uuid) -> Result<UserSettings> {
+    let settings = crate::db::query_as::<UserSettings>(
         r#"
         INSERT INTO user_settings (user_id)
         VALUES ($1)
@@ -20,13 +17,13 @@ pub async fn ensure_default(
         "#,
     )
     .bind(user_id)
-    .fetch_one(&mut **tx)
+    .fetch_one(tx)
     .await?;
     Ok(settings)
 }
 
 pub async fn get(pool: &PgPool, user_id: Uuid) -> Result<UserSettings> {
-    let settings = sqlx::query_as::<_, UserSettings>(
+    let settings = crate::db::query_as::<UserSettings>(
         r#"
         SELECT user_id, history_line, preferred_stats_period, nb_elements, metric_used,
                dark_mode, timezone, date_format, hour_format, updated_at
@@ -46,7 +43,7 @@ pub async fn update(pool: &PgPool, user_id: Uuid, patch: &SettingsPatch) -> Resu
     let timezone_provided = patch.timezone.is_some();
     let timezone = patch.timezone.clone().flatten();
 
-    let settings = sqlx::query_as::<_, UserSettings>(
+    let settings = crate::db::query_as::<UserSettings>(
         r#"
         UPDATE user_settings
         SET history_line = COALESCE($2, history_line),
@@ -79,7 +76,7 @@ pub async fn update(pool: &PgPool, user_id: Uuid, patch: &SettingsPatch) -> Resu
 }
 
 pub async fn global(pool: &PgPool) -> Result<GlobalPreferences> {
-    let preferences = sqlx::query_as::<_, GlobalPreferences>(
+    let preferences = crate::db::query_as::<GlobalPreferences>(
         r#"
         SELECT allow_registrations, allow_affinity, updated_at
         FROM global_preferences
@@ -91,15 +88,15 @@ pub async fn global(pool: &PgPool) -> Result<GlobalPreferences> {
     Ok(preferences)
 }
 
-pub async fn global_tx(tx: &mut Transaction<'_, Postgres>) -> Result<GlobalPreferences> {
-    let preferences = sqlx::query_as::<_, GlobalPreferences>(
+pub async fn global_tx(tx: &Transaction<'_>) -> Result<GlobalPreferences> {
+    let preferences = crate::db::query_as::<GlobalPreferences>(
         r#"
         SELECT allow_registrations, allow_affinity, updated_at
         FROM global_preferences
         WHERE id = TRUE
         "#,
     )
-    .fetch_one(&mut **tx)
+    .fetch_one(tx)
     .await?;
     Ok(preferences)
 }
@@ -109,7 +106,7 @@ pub async fn update_global(
     patch: &GlobalPreferencesPatch,
 ) -> Result<GlobalPreferences> {
     let current = global(pool).await?;
-    let preferences = sqlx::query_as::<_, GlobalPreferences>(
+    let preferences = crate::db::query_as::<GlobalPreferences>(
         r#"
         UPDATE global_preferences
         SET allow_registrations = $1,

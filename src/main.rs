@@ -1,6 +1,7 @@
 mod app;
 mod auth;
 mod config;
+mod db;
 mod domain;
 mod dto;
 mod error;
@@ -125,17 +126,15 @@ async fn serve(config: Config) -> Result<()> {
 }
 
 async fn run_migrations(state: &AppState) -> Result<()> {
-    sqlx::migrate!("./migrations")
-        .run(&state.db)
-        .await
-        .map_err(|err| crate::error::AppError::internal(err.to_string()))?;
+    crate::db::migrate(&state.db).await?;
     Ok(())
 }
 
 async fn check_db(config: &Config) -> Result<()> {
-    let pool = sqlx::PgPool::connect(config.database_url.expose_secret()).await?;
-    let value = sqlx::query_scalar::<_, i32>("SELECT 1")
-        .fetch_one(&pool)
+    let client = crate::db::connect_once(config.database_url.expose_secret()).await?;
+    let value = spotrak_codegen::queries::health::check()
+        .bind(&client)
+        .one()
         .await?;
     tracing::info!(value, "database connectivity ok");
     Ok(())
@@ -230,8 +229,9 @@ fn spawn_cleanup_jobs(state: AppState) {
 }
 
 async fn seed_dev(state: &AppState) -> Result<()> {
-    let mut tx = state.db.begin().await?;
-    let user_id = sqlx::query_scalar::<_, uuid::Uuid>(
+    let mut client = state.db.get().await?;
+    let tx = client.transaction().await?;
+    let user_id = crate::db::query_scalar::<uuid::Uuid>(
         r#"
         INSERT INTO users (username, spotify_id, admin, first_listened_at)
         VALUES ('Seed User', 'spotify_seed_user', TRUE, '2024-03-10T06:30:00Z')
@@ -239,15 +239,15 @@ async fn seed_dev(state: &AppState) -> Result<()> {
         RETURNING id
         "#,
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&tx)
     .await?;
 
-    sqlx::query("INSERT INTO user_settings (user_id, timezone) VALUES ($1, 'America/New_York') ON CONFLICT (user_id) DO NOTHING")
+    crate::db::query("INSERT INTO user_settings (user_id, timezone) VALUES ($1, 'America/New_York') ON CONFLICT (user_id) DO NOTHING")
         .bind(user_id)
-        .execute(&mut *tx)
+        .execute(&tx)
         .await?;
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO artists (id, name, genres) VALUES
           ('artist_seed_alpha', 'Seed Alpha', '["indie"]'),
@@ -256,10 +256,10 @@ async fn seed_dev(state: &AppState) -> Result<()> {
         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
         "#,
     )
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO albums (id, name, album_type, release_date, release_date_precision, release_year, total_tracks) VALUES
           ('album_seed_dawn', 'Seed Dawn', 'album', '2023-01-01', 'day', 2023, 2),
@@ -267,10 +267,10 @@ async fn seed_dev(state: &AppState) -> Result<()> {
         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name
         "#,
     )
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO album_artists (album_id, artist_id, position) VALUES
           ('album_seed_dawn', 'artist_seed_alpha', 0),
@@ -278,10 +278,10 @@ async fn seed_dev(state: &AppState) -> Result<()> {
         ON CONFLICT (album_id, artist_id) DO UPDATE SET position = EXCLUDED.position
         "#,
     )
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO tracks (id, name, album_id, duration_ms, explicit, track_number) VALUES
           ('track_seed_sunrise', 'Seed Sunrise', 'album_seed_dawn', 180000, FALSE, 1),
@@ -292,10 +292,10 @@ async fn seed_dev(state: &AppState) -> Result<()> {
         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, duration_ms = EXCLUDED.duration_ms
         "#,
     )
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO track_artists (track_id, artist_id, position) VALUES
           ('track_seed_sunrise', 'artist_seed_alpha', 0),
@@ -307,10 +307,10 @@ async fn seed_dev(state: &AppState) -> Result<()> {
         ON CONFLICT (track_id, artist_id) DO UPDATE SET position = EXCLUDED.position
         "#,
     )
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO user_blacklisted_artists (user_id, artist_id)
         VALUES ($1, 'artist_seed_guest')
@@ -318,7 +318,7 @@ async fn seed_dev(state: &AppState) -> Result<()> {
         "#,
     )
     .bind(user_id)
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
 
     for (track_id, album_id, artist_id, duration_ms, played_at) in [
@@ -393,7 +393,7 @@ async fn seed_dev(state: &AppState) -> Result<()> {
             "2025-01-01T01:00:00Z",
         ),
     ] {
-        sqlx::query(
+        crate::db::query(
             r#"
             INSERT INTO listening_events (user_id, track_id, album_id, primary_artist_id, duration_ms, played_at, blacklisted_by, source)
             VALUES ($1, $2, $3, $4, $5, $6::timestamptz, CASE WHEN $4 = 'artist_seed_guest' THEN 'artist' ELSE NULL END, 'seed')
@@ -406,11 +406,11 @@ async fn seed_dev(state: &AppState) -> Result<()> {
         .bind(artist_id)
         .bind(duration_ms)
         .bind(played_at)
-        .execute(&mut *tx)
+        .execute(&tx)
         .await?;
     }
 
-    sqlx::query(
+    crate::db::query(
         r#"
         INSERT INTO import_jobs (user_id, import_type, status, total, current, metadata)
         VALUES ($1, 'privacy', 'success', 6, 6, '{"seed": true}'::jsonb)
@@ -418,7 +418,7 @@ async fn seed_dev(state: &AppState) -> Result<()> {
         "#,
     )
     .bind(user_id)
-    .execute(&mut *tx)
+    .execute(&tx)
     .await?;
 
     tx.commit().await?;

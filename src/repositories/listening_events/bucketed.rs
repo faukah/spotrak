@@ -1,5 +1,5 @@
+use crate::db::PgPool;
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{
@@ -57,7 +57,7 @@ pub async fn top_tracks_by_bucket(
         ORDER BY bucket ASC, rank ASC, name ASC, id ASC
         "#
     );
-    let rows = sqlx::query_as::<_, BucketedTopTrack>(&sql)
+    let rows = crate::db::query_as::<BucketedTopTrack>(&sql)
         .bind(user_id)
         .bind(timezone)
         .bind(grain)
@@ -116,7 +116,7 @@ pub async fn top_artists_by_bucket(
         ORDER BY bucket ASC, rank ASC, name ASC, id ASC
         "#
     );
-    let rows = sqlx::query_as::<_, BucketedTopArtist>(&sql)
+    let rows = crate::db::query_as::<BucketedTopArtist>(&sql)
         .bind(user_id)
         .bind(timezone)
         .bind(grain)
@@ -205,7 +205,7 @@ pub async fn top_artists_by_bucket_with_other(
         ORDER BY bucket ASC, rank ASC, name ASC, id ASC
         "#
     );
-    let rows = sqlx::query_as::<_, BucketedTopArtist>(&sql)
+    let rows = crate::db::query_as::<BucketedTopArtist>(&sql)
         .bind(user_id)
         .bind(timezone)
         .bind(grain)
@@ -267,7 +267,7 @@ pub async fn top_albums_by_bucket(
         ORDER BY bucket ASC, rank ASC, name ASC, id ASC
         "#
     );
-    let rows = sqlx::query_as::<_, BucketedTopAlbum>(&sql)
+    let rows = crate::db::query_as::<BucketedTopAlbum>(&sql)
         .bind(user_id)
         .bind(timezone)
         .bind(grain)
